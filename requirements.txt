@@ -1,0 +1,7 @@
+pyrofork @ git+https://github.com/Mayuri-Chan/pyrofork.git
+tgcrypto-pyrofork==1.2.8
+motor==3.7.1
+python-dotenv==1.2.3
+aiohttp==3.11.0
+psutil==6.1.0
+uvloop==0.21.0; sys_platform != "win32"
