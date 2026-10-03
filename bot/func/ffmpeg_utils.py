@@ -30,6 +30,7 @@ ALLOWED_FLAGS = {
     "-max_muxing_queue_size", "-threads",
     "-metadata", "-metadata:s:v", "-metadata:s:a", "-metadata:s:s",
     "-c:a", "-c:v", "-ac", "-sn", "-an",
+    "-bufsize",
 }
 
 FORBIDDEN_FLAGS = {"-i", "-map", "-vf", "-filter_complex", "-filter:v", "-filter:a"}

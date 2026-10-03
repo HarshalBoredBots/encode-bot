@@ -48,6 +48,8 @@ class QueueManager:
     def queue_position(self, job: Job) -> int:
         pos = 1
         for j in self.jobs.values():
+            if j.status not in ("pending", "running"):
+                continue
             if j.status == "running":
                 pos += 1
             elif j.status == "pending" and j.job_id != job.job_id:

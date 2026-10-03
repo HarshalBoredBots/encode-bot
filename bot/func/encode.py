@@ -19,7 +19,7 @@ _TIME_RE = re.compile(rb"time=(\d+):(\d+):([\d.]+)")
 
 async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
     proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
     )
     last_update = 0.0
 
@@ -224,6 +224,12 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
             except Exception:
                 pass
 
+    try:
+        in_size = os.path.getsize(input_path) if os.path.isfile(input_path) else 0
+    except Exception:
+        in_size = 0
+    out_size = sum(os.path.getsize(p) for _, p in out_paths if os.path.isfile(p))
+
     _safe_remove(input_path)
     for _, p in out_paths:
         _safe_remove(p)
@@ -242,11 +248,6 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
     try:
         ratio = ""
         if out_paths:
-            try:
-                in_size = os.path.getsize(input_path) if os.path.isfile(input_path) else 0
-            except Exception:
-                in_size = 0
-            out_size = sum(os.path.getsize(p) for _, p in out_paths if os.path.isfile(p))
             if in_size:
                 ratio = f" ({100 * out_size / in_size:.1f}% of source)"
         await client.send_message(

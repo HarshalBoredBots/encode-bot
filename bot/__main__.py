@@ -46,13 +46,11 @@ async def main():
     register_listener(app)
     async with app:
         await queue_manager.start_worker()
-        await app.start()
         log.info("Bot started as %s v%s", config.BOT_NAME, config.BOT_VERSION)
         try:
             await idle()
         finally:
             await queue_manager.stop()
-            await app.stop()
             log.info("Bot stopped.")
 
 if __name__ == "__main__":
