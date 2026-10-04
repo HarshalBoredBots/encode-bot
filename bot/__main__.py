@@ -108,7 +108,13 @@ async def main():
             log.info("Bot stopped.")
 
 if __name__ == "__main__":
+    # Pyrogram binds its dispatcher tasks to app.loop (captured when the Client
+    # was created). asyncio.run() would create a *different* loop, so handlers
+    # never run and shutdown crashes with "attached to a different loop".
+    # Run on Pyrogram's own loop instead.
+    loop = app.loop
+    asyncio.set_event_loop(loop)
     try:
-        asyncio.run(main())
+        loop.run_until_complete(main())
     except (KeyboardInterrupt, SystemExit):
         pass
