@@ -53,12 +53,13 @@ def build_watermark_filter(wm: dict, video_duration: float, frame_width: int, fr
     x_expr = x_expr.replace("P", str(P))
     y_expr = y_expr.replace("P", str(P))
 
+    # x_expr and y_expr from WATERMARK_POSITIONS already include "x=" and "y=" prefixes
     base = (
         f"drawtext=fontfile='{font_path}'"
         f":text='{text}'"
         f":fontcolor={color}"
         f":fontsize={font_size}"
-        f":x={x_expr}:y={y_expr}"
+        f":{x_expr}:{y_expr}"
     )
 
     timing_mode = wm.get("timing_mode", "full")
