@@ -105,14 +105,16 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
                 pass
         return
 
-    os.makedirs(config.DOWNLOAD_DIR, exist_ok=True)
+    # Use absolute path so FFmpeg output and file-existence checks are consistent
+    download_dir = os.path.abspath(config.DOWNLOAD_DIR)
+    os.makedirs(download_dir, exist_ok=True)
 
     try:
         status = await client.send_message(job.chat_id, "⬇️ Downloading source file...")
     except Exception:
         status = None
 
-    input_path = os.path.join(config.DOWNLOAD_DIR, f"{job.job_id}.src")
+    input_path = os.path.join(download_dir, f"{job.job_id}.src")
 
     try:
         input_path = await download_manager.download(
@@ -162,7 +164,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
             local_settings["video"]["resolution"] = [res]
 
             out_ext = "." + str(video.get("output_format", "mkv"))
-            output_path = os.path.join(config.DOWNLOAD_DIR, f"{job.job_id}_{res}{out_ext}")
+            output_path = os.path.join(download_dir, f"{job.job_id}_{res}{out_ext}")
 
             cmd = generate_ffmpeg_cmd(input_path, output_path, local_settings, probe_data)
             log.info("FFmpeg cmd (%s): %s", res, " ".join(cmd))
@@ -171,10 +173,14 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
 
             if job.cancel_requested:
                 break
-            if not os.path.isfile(output_path) or os.path.getsize(output_path) == 0:
+            exists = os.path.isfile(output_path)
+            size = os.path.getsize(output_path) if exists else 0
+            log.info("Output check: %s exists=%s size=%d", output_path, exists, size)
+            if not exists or size == 0:
+                log.error("Encoding produced no output for %s (exists=%s size=%d)", res, exists, size)
                 if status:
                     try:
-                        await status.edit_text(f"❌ Encoding failed for {res}.")
+                        await status.edit_text(f"❌ Encoding failed for {res} — no output file produced.")
                     except Exception:
                         pass
                 continue
@@ -207,7 +213,9 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
 
         thumb_path = settings.get("thumbnail")
         if not thumb_path:
-            thumb_path = os.path.join(config.THUMB_DIR, f"{job.job_id}_{res}.jpg")
+            thumb_dir = os.path.abspath(config.THUMB_DIR)
+            os.makedirs(thumb_dir, exist_ok=True)
+            thumb_path = os.path.join(thumb_dir, f"{job.job_id}_{res}.jpg")
             try:
                 if not await extract_thumbnail(out, thumb_path, duration):
                     thumb_path = None
