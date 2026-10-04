@@ -1,3 +1,4 @@
+from pyrogram.enums import ChatType
 from bot import config
 import database
 
@@ -14,8 +15,8 @@ async def check_access(message) -> tuple:
     if user_id and user_id == config.OWNER_ID:
         return True, ""
 
-    is_private = chat.type == "private"
-    is_group = chat.type in ("group", "supergroup")
+    is_private = chat.type == ChatType.PRIVATE
+    is_group = chat.type in (ChatType.GROUP, ChatType.SUPERGROUP)
 
     if is_private:
         if user_id and await database.is_premium_user(user_id):
