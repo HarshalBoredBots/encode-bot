@@ -88,10 +88,21 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
     except Exception:
         free = config.MIN_FREE_DISK_BYTES
     if free < config.MIN_FREE_DISK_BYTES:
-        try:
-            await client.send_message(job.chat_id, "❌ Not enough free disk space to start encoding.")
-        except Exception:
-            pass
+        msg = (
+            f"❌ Not enough free disk space to start encoding.\n"
+            f"Free: {humanbytes(free)} · Required: {humanbytes(config.MIN_FREE_DISK_BYTES)}"
+        )
+        log.warning("Disk space check failed for job %s: %s", job.job_id, msg)
+        if status:
+            try:
+                await status.edit_text(msg)
+            except Exception:
+                pass
+        else:
+            try:
+                await client.send_message(job.chat_id, msg)
+            except Exception:
+                pass
         return
 
     os.makedirs(config.DOWNLOAD_DIR, exist_ok=True)

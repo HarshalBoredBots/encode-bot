@@ -7,7 +7,10 @@ from bot import config
 from bot.func.queue_manager import queue_manager, Job
 from bot.func.encode import run_encode_job
 from bot.utils.format import humanbytes
+from bot.logger import get_logger
 import database
+
+log = get_logger(__name__)
 
 def _is_video_doc(message):
     if message.video:
@@ -72,13 +75,37 @@ async def on_video(client, message):
 
 @Client.on_callback_query(filters.regex(r"^enc_start:"))
 async def enc_start(client, cq):
+    log.info("enc_start triggered by user %s, data: %s", cq.from_user.id, cq.data)
+
     try:
         await cq.answer()
     except Exception:
         pass
 
-    src = cq.message.reply_to_message
+    # Parse source message ID from callback data
+    try:
+        src_msg_id = int(cq.data.split(":")[1])
+    except (IndexError, ValueError) as e:
+        log.error("Failed to parse src_msg_id from callback data '%s': %s", cq.data, e)
+        try:
+            await cq.answer("Invalid callback data.", show_alert=True)
+        except Exception:
+            pass
+        return
+
+    # Fetch source message directly — reply_to_message is unreliable in Pyrogram callbacks
+    try:
+        src = await client.get_messages(cq.message.chat.id, src_msg_id)
+    except Exception as e:
+        log.error("Failed to fetch source message %s: %s", src_msg_id, e)
+        try:
+            await cq.answer("Could not fetch source message.", show_alert=True)
+        except Exception:
+            pass
+        return
+
     if not src or not src.from_user or src.from_user.id != cq.from_user.id:
+        log.warning("Source message %s not found or user mismatch for user %s", src_msg_id, cq.from_user.id)
         try:
             await cq.answer("Source message not found.", show_alert=True)
         except Exception:
@@ -87,6 +114,7 @@ async def enc_start(client, cq):
 
     media = src.video or src.document
     if not media:
+        log.warning("No media in source message %s", src_msg_id)
         try:
             await cq.answer("No media found.", show_alert=True)
         except Exception:
@@ -100,6 +128,8 @@ async def enc_start(client, cq):
         except Exception:
             pass
         return
+
+    log.info("Creating job for user %s, file: %s", user_id, media.file_name)
 
     job = Job(
         job_id=str(uuid.uuid4()),
@@ -119,12 +149,14 @@ async def enc_start(client, cq):
 
     ok, info = await queue_manager.add_job(job)
     if not ok:
+        log.warning("add_job rejected for user %s: %s", user_id, info)
         try:
             await cq.answer(info, show_alert=True)
         except Exception:
             pass
         return
 
+    log.info("Job %s queued at position %s for user %s", job.job_id, info, user_id)
     try:
         await cq.message.edit_text(
             f"✅ Added to queue.\nPosition: {info}"
