@@ -4,6 +4,7 @@ import sys
 import os
 import urllib.request
 import tarfile
+import zipfile
 
 from pyrogram import idle
 
@@ -28,28 +29,38 @@ async def check_ffmpeg():
         except Exception:
             return False
 
+    def _download_btbn():
+        """Download BtbN static ffmpeg build which includes libfreetype/drawtext."""
+        static_dir = "/app/ffmpeg-static"
+        os.makedirs(static_dir, exist_ok=True)
+        # BtbN linux64 static build - full GPL build with all filters
+        url = (
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
+            "ffmpeg-master-latest-linux64-gpl.tar.xz"
+        )
+        tmp = "/tmp/ffmpeg-btbn.tar.xz"
+        log.info("Downloading BtbN static ffmpeg (full GPL build)...")
+        urllib.request.urlretrieve(url, tmp)
+        log.info("Extracting...")
+        with tarfile.open(tmp, "r:xz") as tar:
+            for member in tar.getmembers():
+                basename = os.path.basename(member.name)
+                if basename in ("ffmpeg", "ffprobe") and member.isfile():
+                    dest = os.path.join(static_dir, basename)
+                    with tar.extractfile(member) as src, open(dest, "wb") as dst:
+                        dst.write(src.read())
+                    os.chmod(dest, 0o755)
+                    log.info("Extracted %s -> %s", member.name, dest)
+        os.remove(tmp)
+        return static_dir
+
     if not _has_drawtext(config.FFMPEG_BIN):
         static_dir = "/app/ffmpeg-static"
         static_ffmpeg = os.path.join(static_dir, "ffmpeg")
         static_ffprobe = os.path.join(static_dir, "ffprobe")
 
         if not os.path.isfile(static_ffmpeg) or not _has_drawtext(static_ffmpeg):
-            os.makedirs(static_dir, exist_ok=True)
-            url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
-            tmp = "/tmp/ffmpeg-static.tar.xz"
-            log.info("Downloading static ffmpeg with full filter support...")
-            urllib.request.urlretrieve(url, tmp)
-            log.info("Extracting static ffmpeg...")
-            with tarfile.open(tmp, "r:xz") as tar:
-                for member in tar.getmembers():
-                    basename = os.path.basename(member.name)
-                    if basename in ("ffmpeg", "ffprobe") and member.isfile():
-                        dest = os.path.join(static_dir, basename)
-                        with tar.extractfile(member) as src, open(dest, "wb") as dst:
-                            dst.write(src.read())
-                        os.chmod(dest, 0o755)
-                        log.info("Extracted %s -> %s", member.name, dest)
-            os.remove(tmp)
+            _download_btbn()
 
         if not os.path.isfile(static_ffmpeg):
             raise RuntimeError("Failed to extract static ffmpeg binary")
