@@ -2,7 +2,6 @@ import asyncio
 import subprocess
 import sys
 import os
-import shutil
 import urllib.request
 import tarfile
 
@@ -40,13 +39,20 @@ async def check_ffmpeg():
             tmp = "/tmp/ffmpeg-static.tar.xz"
             log.info("Downloading static ffmpeg with full filter support...")
             urllib.request.urlretrieve(url, tmp)
+            log.info("Extracting static ffmpeg...")
             with tarfile.open(tmp, "r:xz") as tar:
                 for member in tar.getmembers():
-                    if member.name.endswith("/ffmpeg") or member.name.endswith("/ffprobe"):
-                        member.name = os.path.basename(member.name)
-                        tar.extract(member, static_dir)
-            os.chmod(static_ffmpeg, 0o755)
-            os.chmod(static_ffprobe, 0o755)
+                    basename = os.path.basename(member.name)
+                    if basename in ("ffmpeg", "ffprobe") and member.isfile():
+                        dest = os.path.join(static_dir, basename)
+                        with tar.extractfile(member) as src, open(dest, "wb") as dst:
+                            dst.write(src.read())
+                        os.chmod(dest, 0o755)
+                        log.info("Extracted %s -> %s", member.name, dest)
+            os.remove(tmp)
+
+        if not os.path.isfile(static_ffmpeg):
+            raise RuntimeError("Failed to extract static ffmpeg binary")
 
         config.FFMPEG_BIN = static_ffmpeg
         config.FFPROBE_BIN = static_ffprobe
