@@ -110,19 +110,6 @@ def _extract_season(text: str):
     return None
 
 
-def _extract_quality(text: str):
-    """Return quality string (e.g. '1080p', 'HEVC') from *text*, or None."""
-    for pat in [
-        re.compile(r'\b(4K|2K|2160p|1440p|1080p|720p|480p|360p)\b', re.IGNORECASE),
-        re.compile(r'\b(HD(?:RIP)?|WEB(?:-)?DL|BLURAY)\b',           re.IGNORECASE),
-        re.compile(r'\b(X264|X265|HEVC)\b',                           re.IGNORECASE),
-    ]:
-        m = pat.search(text)
-        if m:
-            return m.group(1)
-    return None
-
-
 def _extract_audio(text: str):
     """Return audio label (e.g. 'Dual', 'Hindi') from *text*, or None."""
     keywords = {
@@ -139,41 +126,43 @@ def _extract_audio(text: str):
     return ' '.join(found) if found else None
 
 
-def resolve_encode_template(template: str, source_filename: str) -> str:
+def resolve_encode_template(template: str, source_filename: str, encode_resolution: str = None) -> str:
     """
     Resolve an auto-encode filename template against the source filename.
 
     Supported placeholders (case-insensitive):
         {episode}  – episode number zero-padded to 2 digits (e.g. 05)
         {season}   – season number (e.g. 1)
-        {quality}  – quality indicator (e.g. 1080p, HEVC)
+        {quality}  – ALWAYS uses encode_resolution (e.g. 480p, 720p, 1080p)
+                     if provided; falls back to extraction from source filename
         {audio}    – audio label (e.g. Dual, Hindi)
 
-    If a placeholder cannot be extracted from *source_filename* the placeholder
-    text is left **empty** and any surrounding empty brackets ([], (), {}) are
-    stripped so the filename stays clean.
+    If a placeholder cannot be resolved the placeholder text is left
+    **empty** and any surrounding empty brackets ([], (), {}) are stripped.
 
-    The file extension is taken from the template if it has one; otherwise the
-    extension of *source_filename* is appended.
-
-    Example
-    -------
-    template      : "[S1-E{episode}] Elusive Samurai [{quality}] [Dual] @Animes_Ocean.mkv"
-    source        : "Elusive.Samurai.S01E05.1080p.mkv"
-    result        : "[S1-E05] Elusive Samurai [1080p] [Dual] @Animes_Ocean.mkv"
+    The file extension is taken from the template if it has one; it is
+    overridden by encode_resolution's implied format only when the template
+    extension differs from settings["video"]["output_format"] — that logic
+    lives in the caller.
     """
     # Strip CRC32 hashes (8-hex in brackets) before extraction
     clean_src = re.sub(r'\[[0-9A-Fa-f]{8}\]', '', source_filename).strip()
 
     ep  = _extract_episode(clean_src)
     s   = _extract_season(clean_src)
-    q   = _extract_quality(clean_src)
     aud = _extract_audio(clean_src)
 
     ep_str  = str(ep).zfill(2) if ep  is not None else ""
     s_str   = str(s)           if s   is not None else ""
-    q_str   = q  or ""
     aud_str = aud or ""
+
+    # {quality} always comes from the actual encode resolution when provided
+    if encode_resolution:
+        q_str = encode_resolution
+    else:
+        from bot.utils.format import _extract_quality  # avoid circular at module level
+        q = _extract_quality(clean_src)
+        q_str = q or ""
 
     result = template
     result = re.sub(r'\{episode\}', ep_str,  result, flags=re.IGNORECASE)
@@ -195,3 +184,16 @@ def resolve_encode_template(template: str, source_filename: str) -> str:
         result += (tmpl_ext or src_ext)
 
     return result
+
+
+def _extract_quality(text: str):
+    """Return quality string (e.g. '1080p', 'HEVC') from *text*, or None."""
+    for pat in [
+        re.compile(r'\b(4K|2K|2160p|1440p|1080p|720p|480p|360p)\b', re.IGNORECASE),
+        re.compile(r'\b(HD(?:RIP)?|WEB(?:-)?DL|BLURAY)\b',           re.IGNORECASE),
+        re.compile(r'\b(X264|X265|HEVC)\b',                           re.IGNORECASE),
+    ]:
+        m = pat.search(text)
+        if m:
+            return m.group(1)
+    return None

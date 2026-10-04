@@ -22,6 +22,7 @@ async def upload(
     as_video: bool = True,
     reply_to: int = None,
     message=None,
+    file_name: str = None,
 ):
     ext = os.path.splitext(path)[1].lower()
     # Force document upload for formats Telegram can't stream (mkv, avi, etc.)
@@ -47,6 +48,7 @@ async def upload(
                     caption=caption,
                     supports_streaming=True,
                     reply_to_message_id=reply_to,
+                    file_name=file_name,
                     **progress_kwargs,
                 )
             else:
@@ -56,6 +58,7 @@ async def upload(
                     thumb=thumb,
                     caption=caption,
                     reply_to_message_id=reply_to,
+                    file_name=file_name,
                     **progress_kwargs,
                 )
             log.info("Upload complete for %s (%.1fs)", path, time.time() - start)

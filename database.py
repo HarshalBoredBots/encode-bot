@@ -94,7 +94,6 @@ async def set_autoencode_template(user_id: int, template: str) -> None:
         {"$set": {"autoencode_template": template}},
         upsert=True,
     )
-    # Invalidate the settings cache so the next get_user_settings re-fetches.
     _cache.pop(user_id, None)
 
 async def get_autoencode_template(user_id: int) -> str:
@@ -103,3 +102,40 @@ async def get_autoencode_template(user_id: int) -> str:
     if not doc:
         return ""
     return doc.get("autoencode_template", "")
+
+
+# ── Group access storage ──────────────────────────────────────────────────────
+
+async def add_allowed_group(group_id: int, added_by: int) -> None:
+    """Grant a group access to the bot."""
+    await _db.groups.update_one(
+        {"_id": group_id},
+        {"$set": {"allowed": True, "added_by": added_by, "added_at": datetime.utcnow()}},
+        upsert=True,
+    )
+
+async def remove_allowed_group(group_id: int) -> None:
+    """Revoke a group's access."""
+    await _db.groups.update_one({"_id": group_id}, {"$set": {"allowed": False}})
+
+async def is_group_allowed(group_id: int) -> bool:
+    """Check if a group is allowed."""
+    doc = await _db.groups.find_one({"_id": group_id})
+    return bool(doc and doc.get("allowed"))
+
+async def list_allowed_groups() -> list:
+    """Return list of allowed group IDs."""
+    return [d["_id"] async for d in _db.groups.find({"allowed": True})]
+
+async def is_premium_user(user_id: int) -> bool:
+    """Check if user has premium access (for DM use)."""
+    doc = await _db.users.find_one({"_id": user_id})
+    return bool(doc and doc.get("is_premium"))
+
+async def set_premium_user(user_id: int, value: bool) -> None:
+    """Grant or revoke premium for a user."""
+    await _db.users.update_one(
+        {"_id": user_id},
+        {"$set": {"is_premium": value}},
+        upsert=True,
+    )

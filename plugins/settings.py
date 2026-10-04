@@ -15,6 +15,7 @@ from bot.utils.settings import (
 )
 from bot.utils.listener import ask_user
 import database
+from bot.utils.access import check_access
 
 def _b(text, data):
     return InlineKeyboardButton(text, callback_data=data)
@@ -77,8 +78,13 @@ async def _render(cq, text, kb):
 async def _save(user_id, settings):
     await database.update_user_settings(user_id, settings)
 
-@Client.on_message(filters.command("settings") & filters.private)
+@Client.on_message(filters.command("settings"))
 async def settings_cmd(client, message):
+    allowed, reason = await check_access(message)
+    if not allowed:
+        if message.chat.type == "private":
+            await message.reply_text(reason)
+        return
     s = await database.get_user_settings(message.from_user.id)
     await message.reply_text(main_text(s), reply_markup=main_kb(s))
 

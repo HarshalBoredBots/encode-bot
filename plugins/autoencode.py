@@ -1,27 +1,11 @@
 """
 plugins/autoencode.py
-═══════════════════════════════════════════════════════════════════════════════
-Auto-encode feature for encode-bot-main.
+Auto-encode feature: set a template, then every video sent is auto-queued.
 
 Commands
-────────
+--------
 /autoencode [template]  – set or view the auto-encode filename template
 /stopautoencode         – clear the template and stop auto mode
-
-Media handler (group=1)
-───────────────────────
-When a user has an active template, every video/document sent in private is
-automatically queued for encoding WITHOUT the manual confirm-button flow.
-The existing confirm-button handler in plugins/encode.py (group=0) is skipped
-for these users via an early-return guard added to that file.
-
-Template placeholders
-─────────────────────
-  {episode}  – zero-padded episode number (e.g. 05)
-  {season}   – season number (e.g. 1)
-  {quality}  – quality indicator extracted from source filename (e.g. 1080p)
-  {audio}    – audio label extracted from source filename (e.g. Dual, Hindi)
-═══════════════════════════════════════════════════════════════════════════════
 """
 
 import asyncio
@@ -42,6 +26,7 @@ from bot.func.media import extract_thumbnail
 from bot.func import download_manager, upload_manager
 from bot.func.queue_manager import queue_manager, Job
 from bot.utils.format import humanbytes, TimeFormatter, resolve_encode_template
+from bot.utils.access import check_access
 from bot.logger import get_logger
 import database
 
@@ -68,8 +53,14 @@ def _source_filename(message: Message) -> str:
 
 # ── /autoencode command ───────────────────────────────────────────────────────
 
-@Client.on_message(filters.private & filters.command("autoencode"))
+@Client.on_message(filters.command("autoencode"))
 async def cmd_autoencode(client: Client, message: Message):
+    allowed, reason = await check_access(message)
+    if not allowed:
+        if message.chat.type == "private":
+            await message.reply_text(reason)
+        return
+
     user_id = message.from_user.id
 
     if await database.is_user_banned(user_id):
@@ -78,7 +69,6 @@ async def cmd_autoencode(client: Client, message: Message):
 
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2 or not parts[1].strip():
-        # No argument — show current template
         current = await database.get_autoencode_template(user_id)
         if current:
             await message.reply_text(
@@ -92,7 +82,7 @@ async def cmd_autoencode(client: Client, message: Message):
         else:
             await message.reply_text(
                 "⚙️ **Auto-encode is OFF**\n\n"
-                "No template is set. Send video files one by one after setting a template.\n\n"
+                "No template is set.\n\n"
                 "**Usage:**\n"
                 "`/autoencode [S1-E{episode}] Show Title [{quality}] [Dual] @Channel.mkv`\n\n"
                 "**Supported placeholders:** "
@@ -114,8 +104,14 @@ async def cmd_autoencode(client: Client, message: Message):
 
 # ── /stopautoencode command ───────────────────────────────────────────────────
 
-@Client.on_message(filters.private & filters.command("stopautoencode"))
+@Client.on_message(filters.command("stopautoencode"))
 async def cmd_stopautoencode(client: Client, message: Message):
+    allowed, reason = await check_access(message)
+    if not allowed:
+        if message.chat.type == "private":
+            await message.reply_text(reason)
+        return
+
     user_id = message.from_user.id
     await database.set_autoencode_template(user_id, "")
     await message.reply_text(
@@ -126,7 +122,7 @@ async def cmd_stopautoencode(client: Client, message: Message):
 # ── Media handler (group=1, fires AFTER the confirm-button handler in group=0) ─
 
 @Client.on_message(
-    filters.private & (filters.video | filters.document),
+    (filters.video | filters.document),
     group=1,
 )
 async def on_video_autoencode(client: Client, message: Message):
@@ -138,10 +134,15 @@ async def on_video_autoencode(client: Client, message: Message):
     # Check if the user has an active template
     template = await database.get_autoencode_template(user_id)
     if not template:
-        # No template → the group=0 handler in encode.py already handled this
         return
 
-    # ── Validations ───────────────────────────────────────────────────────────
+    # Access guard
+    allowed, reason = await check_access(message)
+    if not allowed:
+        if message.chat.type == "private":
+            await message.reply_text(reason)
+        return
+
     if await database.is_user_banned(user_id):
         await message.reply_text("🚫 You are banned.")
         return
@@ -155,15 +156,11 @@ async def on_video_autoencode(client: Client, message: Message):
         )
         return
 
-    if len(queue_manager.get_user_jobs(user_id)) >= config.MAX_JOBS_PER_USER:
-        await message.reply_text(
-            "⚠️ You already have an active job. Use /queue or /cancel first."
-        )
-        return
-
-    # ── Resolve output filename ───────────────────────────────────────────────
+    # ── Resolve output filename from encode settings ──────────────────────────
+    settings = await database.get_user_settings(user_id)
+    encode_res = settings["video"]["resolution"][0]
     source_fn = _source_filename(message)
-    output_filename = resolve_encode_template(template, source_fn)
+    output_filename = resolve_encode_template(template, source_fn, encode_res)
 
     # ── Build and queue the job ───────────────────────────────────────────────
     job = Job(
@@ -188,11 +185,18 @@ async def on_video_autoencode(client: Client, message: Message):
         await message.reply_text(f"⚠️ {info}")
         return
 
-    await message.reply_text(
-        f"⚙️ Auto-encode queued!\n\n"
-        f"**Output:** `{output_filename}`\n"
-        f"Queue position: {info}"
-    )
+    pos = info
+    if queue_manager.user_running_count(user_id) > 0 or pos > 1:
+        await message.reply_text(
+            f"📥 Added to queue. Position: {pos}\n\n"
+            f"**Output:** `{output_filename}`"
+        )
+    else:
+        await message.reply_text(
+            f"⚙️ Auto-encode queued!\n\n"
+            f"**Output:** `{output_filename}`\n"
+            f"Queue position: {pos}"
+        )
 
 
 # ── run_autoencode_job ────────────────────────────────────────────────────────
@@ -205,14 +209,6 @@ async def run_autoencode_job(
     src_message_id: int,
     output_filename: str,
 ):
-    """
-    Encode pipeline for auto-encode jobs.
-
-    Identical to run_encode_job in bot/func/encode.py except:
-      • Uses *output_filename* (resolved from the user's template) as the
-        upload caption and document filename instead of a generic label.
-      • No "Start Encode" button — runs fully automatically.
-    """
     user_id  = job.user_id
     settings = await database.get_user_settings(user_id)
     video    = settings["video"]
@@ -297,10 +293,17 @@ async def run_autoencode_job(
 
             out_ext = "." + str(video.get("output_format", "mkv"))
 
-            # For a single resolution use the resolved output filename directly;
-            # for multiple resolutions append the resolution tag before the ext.
+            # Resolve output filename with the actual encode resolution for this pass
+            encode_res = res
+            out_name = resolve_encode_template(
+                output_filename if len(resolutions) == 1
+                else re.sub(r'\.\w+$', '', output_filename),  # strip ext for multi-res
+                os.path.basename(input_path),
+                encode_res,
+            ) if False else output_filename  # output_filename already resolved; just tag multi
+
             if len(resolutions) == 1:
-                out_name   = output_filename
+                out_name = output_filename
                 out_base, out_ext_orig = os.path.splitext(output_filename)
                 output_path = os.path.join(
                     download_dir, f"{job.job_id}_{res}{out_ext_orig or out_ext}"
@@ -372,7 +375,6 @@ async def run_autoencode_job(
             except Exception:
                 thumb_path = None
 
-        # Caption uses the resolved output filename
         caption = out_name
 
         try:
@@ -384,6 +386,7 @@ async def run_autoencode_job(
                 caption=caption,
                 as_video=bool(settings.get("output_as_video", True)),
                 message=status,
+                file_name=out_name,  # show correct name in Telegram
             )
         except Exception as e:
             log.exception("Auto-encode upload failed: %s", e)
@@ -409,16 +412,14 @@ async def run_autoencode_job(
         pass
 
     try:
-        in_size  = 0
         out_size = sum(
             os.path.getsize(p) for _, p, _ in out_paths if os.path.isfile(p)
         )
-        ratio = f" ({100 * out_size / in_size:.1f}% of source)" if in_size else ""
         await client.send_message(
             config.LOG_CHANNEL,
             f"✅ Auto job `{job.job_id}` complete\n"
             f"Output: {output_filename}\n"
-            f"Res: {', '.join(r for r, _, _ in out_paths) or 'none'}{ratio}",
+            f"Res: {', '.join(r for r, _, _ in out_paths) or 'none'}",
         )
     except Exception:
         pass

@@ -30,11 +30,17 @@ class QueueManager:
         self.worker_task = None
         self.running = False
 
+    def user_running_count(self, user_id: int) -> int:
+        return sum(1 for j in self.jobs.values()
+                   if j.user_id == user_id and j.status == "running")
+
+    def user_queue_count(self, user_id: int) -> int:
+        return sum(1 for j in self.jobs.values()
+                   if j.user_id == user_id and j.status in ("pending", "running"))
+
+    # Keep old name for any existing call-sites
     def user_job_count(self, user_id: int) -> int:
-        return sum(
-            1 for j in self.jobs.values()
-            if j.user_id == user_id and j.status in ("pending", "running")
-        )
+        return self.user_queue_count(user_id)
 
     def get_user_jobs(self, user_id: int):
         return [
@@ -57,10 +63,10 @@ class QueueManager:
         return pos
 
     async def add_job(self, job: Job):
-        if self.user_job_count(job.user_id) >= config.MAX_JOBS_PER_USER:
-            return False, "You already have an active job."
+        if self.user_queue_count(job.user_id) >= config.MAX_QUEUED_JOBS_PER_USER:
+            return False, f"Your queue is full ({config.MAX_QUEUED_JOBS_PER_USER} files max). Please wait."
         if self.queue.full():
-            return False, "Queue is full. Please try again later."
+            return False, "Global queue is full. Please try again later."
         self.jobs[job.job_id] = job
         await self.queue.put(job)
         return True, self.queue_position(job)

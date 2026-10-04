@@ -7,6 +7,7 @@ from bot import config
 from bot.func.queue_manager import queue_manager, Job
 from bot.func.encode import run_encode_job
 from bot.utils.format import humanbytes
+from bot.utils.access import check_access
 from bot.logger import get_logger
 import database
 
@@ -20,7 +21,7 @@ def _is_video_doc(message):
         return mt.startswith("video/")
     return False
 
-@Client.on_message(filters.private & (filters.video | filters.document))
+@Client.on_message(filters.video | filters.document)
 async def on_video(client, message):
     if not _is_video_doc(message):
         return
@@ -28,9 +29,16 @@ async def on_video(client, message):
     user_id = message.from_user.id
 
     # If the user has an auto-encode template set, skip the confirm-button UI
-    # entirely — plugins/autoencode.py (group=1) will handle this message.
+    # — plugins/autoencode.py (group=1) will handle this message.
     template = await database.get_autoencode_template(user_id)
     if template:
+        return
+
+    # Access guard
+    allowed, reason = await check_access(message)
+    if not allowed:
+        if message.chat.type == "private":
+            await message.reply_text(reason)
         return
 
     if await database.is_user_banned(user_id):
@@ -43,12 +51,6 @@ async def on_video(client, message):
         await message.reply_text(
             f"❌ File too large: {humanbytes(file_size)} "
             f"(limit {humanbytes(config.MAX_FILE_SIZE)})."
-        )
-        return
-
-    if len(queue_manager.get_user_jobs(user_id)) >= config.MAX_JOBS_PER_USER:
-        await message.reply_text(
-            "⚠️ You already have an active job. Use /queue or /cancel first."
         )
         return
 
@@ -89,7 +91,6 @@ async def enc_start(client, cq):
     except Exception:
         pass
 
-    # Parse source message ID from callback data
     try:
         src_msg_id = int(cq.data.split(":")[1])
     except (IndexError, ValueError) as e:
@@ -100,7 +101,6 @@ async def enc_start(client, cq):
             pass
         return
 
-    # Fetch source message directly — reply_to_message is unreliable in Pyrogram callbacks
     try:
         src = await client.get_messages(cq.message.chat.id, src_msg_id)
     except Exception as e:
@@ -129,12 +129,6 @@ async def enc_start(client, cq):
         return
 
     user_id = cq.from_user.id
-    if len(queue_manager.get_user_jobs(user_id)) >= config.MAX_JOBS_PER_USER:
-        try:
-            await cq.answer("You already have an active job.", show_alert=True)
-        except Exception:
-            pass
-        return
 
     log.info("Creating job for user %s, file: %s", user_id, media.file_name)
 

@@ -104,13 +104,15 @@ async def main():
     # are imported.  Import order matters: encode (group=0) must be imported
     # before autoencode (group=1) so the group numbers reflect the intended
     # dispatch order.
-    import plugins.encode      # noqa: F401 – registers group=0 video handler
-    import plugins.autoencode  # noqa: F401 – registers group=1 auto handler
-    import plugins.settings    # noqa: F401
-    import plugins.queue       # noqa: F401
-    import plugins.admin       # noqa: F401
-    import plugins.start       # noqa: F401
-    import plugins.ocean       # noqa: F401
+    import plugins.encode        # noqa: F401 – registers group=0 video handler
+    import plugins.autoencode    # noqa: F401 – registers group=1 auto handler
+    import plugins.settings      # noqa: F401
+    import plugins.queue         # noqa: F401
+    import plugins.admin         # noqa: F401
+    import plugins.start         # noqa: F401
+    import plugins.ocean         # noqa: F401
+    import plugins.thumb         # noqa: F401 – /setthumbnail command
+    import plugins.group_access  # noqa: F401 – owner group/premium management
 
     async with app:
         await queue_manager.start_worker()
