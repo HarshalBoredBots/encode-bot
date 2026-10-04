@@ -22,6 +22,7 @@ async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
         *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
     )
     last_update = 0.0
+    stderr_lines = []
 
     async def read_stderr():
         nonlocal last_update
@@ -32,6 +33,10 @@ async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
                 break
             if not line:
                 break
+            # Always collect stderr for error reporting
+            decoded = line.decode(errors="replace").rstrip()
+            if decoded:
+                stderr_lines.append(decoded)
             if job.cancel_requested:
                 try:
                     proc.kill()
@@ -76,6 +81,10 @@ async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
             await reader
         except (asyncio.CancelledError, Exception):
             pass
+
+    if proc.returncode != 0 or stderr_lines:
+        log.error("FFmpeg exit code %s for job %s. stderr:\n%s",
+                  proc.returncode, job.job_id, "\n".join(stderr_lines[-20:]))
 
 async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_id: int):
     user_id = job.user_id

@@ -2,7 +2,7 @@ import copy
 import os
 import re
 
-DEFAULT_FONT_PATH = "bot/fonts/Roboto-Regular.ttf"
+DEFAULT_FONT_PATH = "bot/fonts/Kufam-SemiBold.ttf"
 
 VALID_CODECS = {"libx264", "libx265", "libvpx-vp9", "libaom-av1"}
 VALID_PRESETS = [

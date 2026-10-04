@@ -38,7 +38,9 @@ FORBIDDEN_FLAGS = {"-i", "-map", "-vf", "-filter_complex", "-filter:v", "-filter
 BAD_CHARS_RE = re.compile(r"[;&|`$()<>\\\n\r/]")
 
 def build_watermark_filter(wm: dict, video_duration: float, frame_width: int, frame_height: int) -> str:
-    font_path = (wm.get("font_path") or DEFAULT_FONT_PATH).replace("'", r"\'")
+    import os
+    raw_font = wm.get("font_path") or DEFAULT_FONT_PATH
+    font_path = os.path.abspath(raw_font).replace("'", r"\'")
     text = str(wm.get("text", "Encoded")).replace("'", r"\'").replace(":", r"\:")
     color = wm.get("color", "white")
     font_size = int(wm.get("font_size", 24))

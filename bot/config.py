@@ -31,7 +31,7 @@ DOWNLOAD_DIR = "downloads"
 THUMB_DIR = "thumbs"
 WATERMARK_DIR = "watermarks"
 FONT_DIR = "fonts"
-FONT_PATH = "bot/fonts/Roboto-Regular.ttf"
+FONT_PATH = "bot/fonts/Kufam-SemiBold.ttf"
 
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
 FFPROBE_BIN = os.environ.get("FFPROBE_BIN", "ffprobe")
