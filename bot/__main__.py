@@ -1,6 +1,10 @@
 import asyncio
 import subprocess
 import sys
+import os
+import shutil
+import urllib.request
+import tarfile
 
 from pyrogram import idle
 
@@ -15,6 +19,39 @@ import database
 log = get_logger(__name__)
 
 async def check_ffmpeg():
+    def _has_drawtext(bin_path):
+        try:
+            out = subprocess.check_output(
+                [bin_path, "-hide_banner", "-filters"],
+                stderr=subprocess.STDOUT,
+            ).decode(errors="ignore")
+            return "drawtext" in out
+        except Exception:
+            return False
+
+    if not _has_drawtext(config.FFMPEG_BIN):
+        static_dir = "/app/ffmpeg-static"
+        static_ffmpeg = os.path.join(static_dir, "ffmpeg")
+        static_ffprobe = os.path.join(static_dir, "ffprobe")
+
+        if not os.path.isfile(static_ffmpeg) or not _has_drawtext(static_ffmpeg):
+            os.makedirs(static_dir, exist_ok=True)
+            url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+            tmp = "/tmp/ffmpeg-static.tar.xz"
+            log.info("Downloading static ffmpeg with full filter support...")
+            urllib.request.urlretrieve(url, tmp)
+            with tarfile.open(tmp, "r:xz") as tar:
+                for member in tar.getmembers():
+                    if member.name.endswith("/ffmpeg") or member.name.endswith("/ffprobe"):
+                        member.name = os.path.basename(member.name)
+                        tar.extract(member, static_dir)
+            os.chmod(static_ffmpeg, 0o755)
+            os.chmod(static_ffprobe, 0o755)
+
+        config.FFMPEG_BIN = static_ffmpeg
+        config.FFPROBE_BIN = static_ffprobe
+        log.info("Switched to static ffmpeg: %s", static_ffmpeg)
+
     try:
         out = subprocess.check_output(
             [config.FFMPEG_BIN, "-hide_banner", "-filters"],
