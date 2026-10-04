@@ -98,6 +98,20 @@ async def main():
     await database.init_db()
     await start_server(config.PORT)
     register_listener(app)
+
+    # ── Load plugins ──────────────────────────────────────────────────────────
+    # Pyrogram discovers handlers via @Client.on_* decorators when the modules
+    # are imported.  Import order matters: encode (group=0) must be imported
+    # before autoencode (group=1) so the group numbers reflect the intended
+    # dispatch order.
+    import plugins.encode      # noqa: F401 – registers group=0 video handler
+    import plugins.autoencode  # noqa: F401 – registers group=1 auto handler
+    import plugins.settings    # noqa: F401
+    import plugins.queue       # noqa: F401
+    import plugins.admin       # noqa: F401
+    import plugins.start       # noqa: F401
+    import plugins.ocean       # noqa: F401
+
     async with app:
         await queue_manager.start_worker()
         log.info("Bot started as %s v%s", config.BOT_NAME, config.BOT_VERSION)

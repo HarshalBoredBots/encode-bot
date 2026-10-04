@@ -26,6 +26,13 @@ async def on_video(client, message):
         return
 
     user_id = message.from_user.id
+
+    # If the user has an auto-encode template set, skip the confirm-button UI
+    # entirely — plugins/autoencode.py (group=1) will handle this message.
+    template = await database.get_autoencode_template(user_id)
+    if template:
+        return
+
     if await database.is_user_banned(user_id):
         await message.reply_text("🚫 You are banned.")
         return

@@ -83,3 +83,23 @@ async def ban_user(user_id: int) -> None:
 
 async def unban_user(user_id: int) -> None:
     await set_variable(f"banned_{user_id}", False)
+
+
+# ── Auto-encode template storage ─────────────────────────────────────────────
+
+async def set_autoencode_template(user_id: int, template: str) -> None:
+    """Save the user's auto-encode filename template. Empty string = disabled."""
+    await _db.users.update_one(
+        {"_id": user_id},
+        {"$set": {"autoencode_template": template}},
+        upsert=True,
+    )
+    # Invalidate the settings cache so the next get_user_settings re-fetches.
+    _cache.pop(user_id, None)
+
+async def get_autoencode_template(user_id: int) -> str:
+    """Return the user's auto-encode template, or '' if not set."""
+    doc = await _db.users.find_one({"_id": user_id}, {"autoencode_template": 1})
+    if not doc:
+        return ""
+    return doc.get("autoencode_template", "")
