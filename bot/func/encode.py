@@ -220,8 +220,21 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
         if job.cancel_requested:
             break
 
-        thumb_path = settings.get("thumbnail")
-        if not thumb_path:
+        # thumbnail is a Telegram file_id when set by /setthumbnail,
+        # otherwise we extract a frame from the encoded output.
+        thumb_id = settings.get("thumbnail")  # file_id or None
+        if thumb_id:
+            # Download the stored file_id to a local jpg for the upload call
+            thumb_dir = os.path.abspath(config.THUMB_DIR)
+            os.makedirs(thumb_dir, exist_ok=True)
+            thumb_path = os.path.join(thumb_dir, f"{job.job_id}_{res}_custom.jpg")
+            try:
+                await client.download_media(thumb_id, file_name=thumb_path)
+                if not os.path.isfile(thumb_path) or os.path.getsize(thumb_path) == 0:
+                    thumb_path = None
+            except Exception:
+                thumb_path = None
+        else:
             thumb_dir = os.path.abspath(config.THUMB_DIR)
             os.makedirs(thumb_dir, exist_ok=True)
             thumb_path = os.path.join(thumb_dir, f"{job.job_id}_{res}.jpg")

@@ -215,7 +215,8 @@ def normalize_settings(raw) -> dict:
     s["rename"]["pattern"] = str(s["rename"].get("pattern") or "")[:120]
 
     s["output_as_video"] = bool(s.get("output_as_video", True))
-    if s.get("thumbnail") and not os.path.isfile(s["thumbnail"]):
+    # thumbnail is a Telegram file_id string — no filesystem check needed
+    if s.get("thumbnail") and not isinstance(s["thumbnail"], str):
         s["thumbnail"] = None
 
     return s

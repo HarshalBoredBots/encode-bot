@@ -58,8 +58,7 @@ def main_kb(s):
         [_b(f"📦 Format: {v['output_format'].upper()}", "s:fmt"),
          _b(f"🔁 Remux: {'ON' if v['remux'] else 'OFF'}", "s:remux")],
         [_b(f"📤 Send as: {'Video' if s['output_as_video'] else 'Document'}", "s:sendas")],
-        [_b("🖼 Thumbnail", "s:thumb"),
-         _b("⚡ Quick Presets", "s:presets")],
+        [_b("⚡ Quick Presets", "s:presets")],
         [_b(f"💧 Watermark: {'ON' if wm['enabled'] else 'OFF'}", "s:wm")],
         [_b(f"📝 Rename pattern", "s:rename"),
          _b("🧩 Custom FFmpeg", "s:custom")],
@@ -396,61 +395,6 @@ async def s_rename(client, cq):
     await _save(cq.from_user.id, s)
     s2 = await database.get_user_settings(cq.from_user.id)
     await _render(cq, main_text(s2), main_kb(s2))
-
-@Client.on_callback_query(filters.regex(r"^s:thumb$"))
-async def s_thumb(client, cq):
-    s = await database.get_user_settings(cq.from_user.id)
-    cur = "custom" if s.get("thumbnail") else "auto"
-    kb = InlineKeyboardMarkup([
-        [_cb("Auto (extract from video)", "stha", cur == "auto")],
-        [_b("Upload custom", "sthu")],
-        [_b("Remove custom", "sthr")],
-        [_b("◀️ Back", "settings_home")],
-    ])
-    await _render(cq, "🖼 **Thumbnail**", kb)
-    await cq.answer()
-
-@Client.on_callback_query(filters.regex(r"^stha$"))
-async def stha(client, cq):
-    s = await database.get_user_settings(cq.from_user.id)
-    s["thumbnail"] = None
-    await _save(cq.from_user.id, s)
-    await s_thumb(client, cq)
-
-@Client.on_callback_query(filters.regex(r"^sthr$"))
-async def sthr(client, cq):
-    s = await database.get_user_settings(cq.from_user.id)
-    s["thumbnail"] = None
-    await _save(cq.from_user.id, s)
-    await s_thumb(client, cq)
-
-@Client.on_callback_query(filters.regex(r"^sthu$"))
-async def sthu(client, cq):
-    await cq.answer()
-    uid = cq.from_user.id
-    msg = await ask_user(
-        client,
-        cq.message.chat.id,
-        "Send a photo to use as thumbnail. (60s timeout)",
-        timeout=60,
-        user_id=uid,
-    )
-    if msg is None:
-        return
-    if not msg.photo:
-        await client.send_message(cq.message.chat.id, "No photo received.")
-        return
-    os.makedirs(config.THUMB_DIR, exist_ok=True)
-    path = os.path.join(config.THUMB_DIR, f"{uid}.jpg")
-    try:
-        await msg.download(file_name=path)
-    except Exception as e:
-        await client.send_message(cq.message.chat.id, f"Download failed: {e}")
-        return
-    s = await database.get_user_settings(uid)
-    s["thumbnail"] = path
-    await _save(uid, s)
-    await client.send_message(cq.message.chat.id, "✅ Thumbnail saved.")
 
 @Client.on_callback_query(filters.regex(r"^s:trim$"))
 async def s_trim(client, cq):

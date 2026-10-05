@@ -194,12 +194,10 @@ async def ocean_thumb(client, cq):
             pass
         msg = await ask_user(client, cq.message.chat.id, "Awaiting thumbnail...", timeout=60, user_id=uid)
         if msg and msg.photo:
-            os.makedirs(config.THUMB_DIR, exist_ok=True)
-            path = os.path.join(config.THUMB_DIR, f"{uid}.jpg")
             try:
-                await msg.download(file_name=path)
+                file_id = msg.photo.file_id
                 s = await database.get_user_settings(uid)
-                s["thumbnail"] = path
+                s["thumbnail"] = file_id
                 await database.update_user_settings(uid, s)
                 st["applied"].append("Thumbnail applied")
             except Exception:

@@ -364,8 +364,18 @@ async def run_autoencode_job(
         if job.cancel_requested:
             break
 
-        thumb_path = settings.get("thumbnail")
-        if not thumb_path:
+        thumb_id = settings.get("thumbnail")  # Telegram file_id or None
+        if thumb_id:
+            thumb_dir = os.path.abspath(config.THUMB_DIR)
+            os.makedirs(thumb_dir, exist_ok=True)
+            thumb_path = os.path.join(thumb_dir, f"{job.job_id}_{res}_custom.jpg")
+            try:
+                await client.download_media(thumb_id, file_name=thumb_path)
+                if not os.path.isfile(thumb_path) or os.path.getsize(thumb_path) == 0:
+                    thumb_path = None
+            except Exception:
+                thumb_path = None
+        else:
             thumb_dir = os.path.abspath(config.THUMB_DIR)
             os.makedirs(thumb_dir, exist_ok=True)
             thumb_path = os.path.join(thumb_dir, f"{job.job_id}_{res}.jpg")
