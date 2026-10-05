@@ -5,6 +5,8 @@ import re
 import shutil
 import time
 
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
 from bot import config
 from bot.logger import get_logger
 from bot.utils.format import TimeFormatter, humanbytes
@@ -12,6 +14,13 @@ from bot.func import download_manager, upload_manager
 from bot.func.ffmpeg_utils import probe_video, generate_ffmpeg_cmd
 from bot.func.media import extract_thumbnail
 import database
+
+
+def _cancel_markup(job_id: str) -> InlineKeyboardMarkup:
+    """Returns an inline keyboard with a Cancel button for the given job."""
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("🛑 Cancel", callback_data=f"cancel_job:{job_id}")
+    ]])
 
 log = get_logger(__name__)
 
@@ -61,7 +70,8 @@ async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
                     f"🎬 Encoding {v['resolution'][0]}...\n"
                     f"[{bar}] {int(pct * 100)}%\n"
                     f"{TimeFormatter(int(cur))} / {TimeFormatter(int(duration))}\n"
-                    f"CRF {v['crf']} · {v['codec']} · {v['preset']}"
+                    f"CRF {v['crf']} · {v['codec']} · {v['preset']}",
+                    reply_markup=_cancel_markup(job.job_id),
                 )
             except Exception:
                 pass
@@ -119,7 +129,11 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
     os.makedirs(download_dir, exist_ok=True)
 
     try:
-        status = await client.send_message(job.chat_id, "⬇️ Downloading source file...")
+        status = await client.send_message(
+            job.chat_id,
+            "⬇️ Downloading source file...",
+            reply_markup=_cancel_markup(job.job_id),
+        )
     except Exception:
         status = None
 
@@ -142,7 +156,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
         _safe_remove(input_path)
         if status:
             try:
-                await status.edit_text("🛑 Cancelled.")
+                await status.edit_text("🛑 Cancelled.", reply_markup=None)
             except Exception:
                 pass
         return
@@ -164,7 +178,8 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
             if status:
                 try:
                     await status.edit_text(
-                        f"🎬 Encoding {res} ({idx + 1}/{len(resolutions)})..."
+                        f"🎬 Encoding {res} ({idx + 1}/{len(resolutions)})...",
+                        reply_markup=_cancel_markup(job.job_id),
                     )
                 except Exception:
                     pass
@@ -211,7 +226,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
             _safe_remove(p)
         if status:
             try:
-                await status.edit_text("🛑 Cancelled.")
+                await status.edit_text("🛑 Cancelled.", reply_markup=None)
             except Exception:
                 pass
         return
@@ -277,7 +292,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
 
     if status:
         try:
-            await status.edit_text("✅ Encode complete.")
+            await status.edit_text("✅ Encode complete.", reply_markup=None)
         except Exception:
             pass
 

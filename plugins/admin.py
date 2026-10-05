@@ -106,5 +106,47 @@ async def restart_cmd(client, message):
     if message.from_user.id not in config.ADMIN_IDS:
         await message.reply_text("Dukhi Atma! 😔")
         return
-    await message.reply_text("♻️ Restarting...")
+    msg = await message.reply_text("♻️ Restarting bot, please wait...")
+    try:
+        await msg.edit_text("♻️ Restarting bot, please wait...\n`Saving state...`")
+    except Exception:
+        pass
     await restart_bot()
+
+
+@Client.on_message(filters.command("allqueue") & filters.private)
+async def allqueue_cmd(client, message):
+    """Owner-only: show every user's active jobs in a concise table."""
+    if message.from_user.id not in config.ADMIN_IDS:
+        await message.reply_text("Dukhi Atma! 😔")
+        return
+
+    from bot.func.queue_manager import queue_manager
+    from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    all_jobs = [j for j in queue_manager.jobs.values()
+                if j.status in ("pending", "running")]
+
+    if not all_jobs:
+        await message.reply_text("📭 Queue is empty.")
+        return
+
+    running = [j for j in all_jobs if j.status == "running"]
+    pending = [j for j in all_jobs if j.status == "pending"]
+
+    lines = [f"📋 **Global Queue** — {len(all_jobs)} job(s)\n"]
+
+    if running:
+        lines.append("▶️ **Running:**")
+        for j in running:
+            lines.append(f"  • `{j.file_name or 'file'}` (user `{j.user_id}`)")
+
+    if pending:
+        lines.append("\n⏳ **Pending:**")
+        for i, j in enumerate(pending, 1):
+            lines.append(f"  {i}. `{j.file_name or 'file'}` (user `{j.user_id}`)")
+
+    markup = InlineKeyboardMarkup([[
+        InlineKeyboardButton("🛑 Cancel ALL", callback_data="owner_cancel_all")
+    ]])
+    await message.reply_text("\n".join(lines), reply_markup=markup)
