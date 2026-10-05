@@ -250,7 +250,7 @@ async def saucc_set(client, cq):
 async def sau_br(client, cq):
     s = await database.get_user_settings(cq.from_user.id)
     cur = s["audio"]["bitrate"]
-    brs = ["96k", "128k", "192k", "256k", "320k"]
+    brs = ["64k", "96k", "128k", "192k", "256k", "320k"]
     row = [_cb(b, f"saub:{b}", b == cur) for b in brs]
     rows = [row[:3], row[3:], [_b("◀️ Back", "s:audio")]]
     await _render(cq, f"🔊 **Audio bitrate** — current: `{cur}`", InlineKeyboardMarkup(rows))
@@ -259,7 +259,7 @@ async def sau_br(client, cq):
 @Client.on_callback_query(filters.regex(r"^saub:"))
 async def saub_set(client, cq):
     v = cq.data.split(":", 1)[1]
-    if v not in ("96k", "128k", "192k", "256k", "320k"):
+    if v not in ("64k", "96k", "128k", "192k", "256k", "320k"):
         await cq.answer("Invalid.", show_alert=True)
         return
     s = await database.get_user_settings(cq.from_user.id)

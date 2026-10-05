@@ -152,6 +152,8 @@ def normalize_settings(raw) -> dict:
     br = str(audio.get("bitrate", "128k"))
     if not re.fullmatch(r"\d+k", br):
         br = "128k"
+    if int(br[:-1]) < 32:
+        br = "64k"
     audio["bitrate"] = br
     if audio.get("track") not in ("all", "1", "2", "none"):
         audio["track"] = "all"
