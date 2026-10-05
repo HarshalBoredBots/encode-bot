@@ -13,6 +13,7 @@ from bot.utils.format import TimeFormatter, humanbytes
 from bot.func import download_manager, upload_manager
 from bot.func.ffmpeg_utils import probe_video, generate_ffmpeg_cmd
 from bot.func.media import extract_thumbnail
+from bot.func.telegram_retry import tg_call
 import database
 
 
@@ -25,6 +26,7 @@ def _cancel_markup(job_id: str) -> InlineKeyboardMarkup:
 log = get_logger(__name__)
 
 _TIME_RE = re.compile(rb"time=(\d+):(\d+):([\d.]+)")
+
 
 async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
     proc = await asyncio.create_subprocess_exec(
@@ -65,16 +67,17 @@ async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
             filled = int(pct * 10)
             bar = "█" * filled + "─" * (10 - filled)
             v = settings["video"]
-            try:
-                await status_msg.edit_text(
-                    f"🎬 Encoding {v['resolution'][0]}...\n"
-                    f"[{bar}] {int(pct * 100)}%\n"
-                    f"{TimeFormatter(int(cur))} / {TimeFormatter(int(duration))}\n"
-                    f"CRF {v['crf']} · {v['codec']} · {v['preset']}",
-                    reply_markup=_cancel_markup(job.job_id),
-                )
-            except Exception:
-                pass
+            if status_msg is not None:
+                try:
+                    await status_msg.edit_text(
+                        f"🎬 Encoding {v['resolution'][0]}...\n"
+                        f"[{bar}] {int(pct * 100)}%\n"
+                        f"{TimeFormatter(int(cur))} / {TimeFormatter(int(duration))}\n"
+                        f"CRF {v['crf']} · {v['codec']} · {v['preset']}",
+                        reply_markup=_cancel_markup(job.job_id),
+                    )
+                except Exception:
+                    pass
 
     reader = asyncio.create_task(read_stderr())
     try:
@@ -96,46 +99,62 @@ async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
         log.error("FFmpeg exit code %s for job %s. stderr:\n%s",
                   proc.returncode, job.job_id, "\n".join(stderr_lines[-20:]))
 
+
+async def _safe_send_message(client, chat_id, text, **kwargs):
+    """Send a status message with retry; returns the message or None on failure."""
+    try:
+        return await tg_call(lambda: client.send_message(chat_id, text, **kwargs))
+    except Exception as e:
+        log.warning("Could not send status message to %s: %s", chat_id, e)
+        return None
+
+
+async def _safe_edit(status, text, **kwargs):
+    """Edit a status message silently; no-op if status is None."""
+    if status is None:
+        return
+    try:
+        await status.edit_text(text, **kwargs)
+    except Exception:
+        pass
+
+
 async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_id: int):
     user_id = job.user_id
     settings = await database.get_user_settings(user_id)
     video = settings["video"]
     resolutions = list(video.get("resolution") or ["720p"])
 
+    # FIX: initialise status to None BEFORE the disk-space check so the
+    # variable is always defined (original code referenced it before assignment).
+    status = None
+
     try:
         free = shutil.disk_usage(".").free
     except Exception:
         free = config.MIN_FREE_DISK_BYTES
+
     if free < config.MIN_FREE_DISK_BYTES:
         msg = (
             f"❌ Not enough free disk space to start encoding.\n"
             f"Free: {humanbytes(free)} · Required: {humanbytes(config.MIN_FREE_DISK_BYTES)}"
         )
         log.warning("Disk space check failed for job %s: %s", job.job_id, msg)
-        if status:
-            try:
-                await status.edit_text(msg)
-            except Exception:
-                pass
-        else:
-            try:
-                await client.send_message(job.chat_id, msg)
-            except Exception:
-                pass
+        # status is None here, so always fall through to send_message
+        await _safe_send_message(client, job.chat_id, msg)
         return
 
     # Use absolute path so FFmpeg output and file-existence checks are consistent
     download_dir = os.path.abspath(config.DOWNLOAD_DIR)
     os.makedirs(download_dir, exist_ok=True)
 
-    try:
-        status = await client.send_message(
-            job.chat_id,
-            "⬇️ Downloading source file...",
-            reply_markup=_cancel_markup(job.job_id),
-        )
-    except Exception:
-        status = None
+    # FIX: use tg_call so RANDOM_ID_DUPLICATE / INTERDC errors are retried
+    status = await _safe_send_message(
+        client,
+        job.chat_id,
+        "⬇️ Downloading source file...",
+        reply_markup=_cancel_markup(job.job_id),
+    )
 
     input_path = os.path.join(download_dir, f"{job.job_id}.src")
 
@@ -145,20 +164,12 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
         )
     except Exception as e:
         log.exception("Download failed: %s", e)
-        if status:
-            try:
-                await status.edit_text(f"❌ Download failed: {e}")
-            except Exception:
-                pass
+        await _safe_edit(status, f"❌ Download failed: {e}")
         return
 
     if job.cancel_requested:
         _safe_remove(input_path)
-        if status:
-            try:
-                await status.edit_text("🛑 Cancelled.", reply_markup=None)
-            except Exception:
-                pass
+        await _safe_edit(status, "🛑 Cancelled.", reply_markup=None)
         return
 
     try:
@@ -175,14 +186,12 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
         for idx, res in enumerate(resolutions):
             if job.cancel_requested:
                 break
-            if status:
-                try:
-                    await status.edit_text(
-                        f"🎬 Encoding {res} ({idx + 1}/{len(resolutions)})...",
-                        reply_markup=_cancel_markup(job.job_id),
-                    )
-                except Exception:
-                    pass
+
+            await _safe_edit(
+                status,
+                f"🎬 Encoding {res} ({idx + 1}/{len(resolutions)})...",
+                reply_markup=_cancel_markup(job.job_id),
+            )
 
             local_settings = copy.deepcopy(settings)
             local_settings["video"]["resolution"] = [res]
@@ -197,49 +206,39 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
 
             if job.cancel_requested:
                 break
+
             exists = os.path.isfile(output_path)
             size = os.path.getsize(output_path) if exists else 0
             log.info("Output check: %s exists=%s size=%d", output_path, exists, size)
+
             if not exists or size == 0:
                 log.error("Encoding produced no output for %s (exists=%s size=%d)", res, exists, size)
-                if status:
-                    try:
-                        await status.edit_text(f"❌ Encoding failed for {res} — no output file produced.")
-                    except Exception:
-                        pass
+                await _safe_edit(status, f"❌ Encoding failed for {res} — no output file produced.")
                 continue
-            if os.path.getsize(output_path) > config.MAX_OUTPUT_SIZE:
+
+            if size > config.MAX_OUTPUT_SIZE:
                 log.warning("Output %s exceeds max size", output_path)
 
             out_paths.append((res, output_path))
+
     except Exception as e:
         log.exception("Encoding pipeline failed: %s", e)
-        if status:
-            try:
-                await status.edit_text(f"❌ Encoding error: {e}")
-            except Exception:
-                pass
+        await _safe_edit(status, f"❌ Encoding error: {e}")
 
     if job.cancel_requested:
         _safe_remove(input_path)
         for _, p in out_paths:
             _safe_remove(p)
-        if status:
-            try:
-                await status.edit_text("🛑 Cancelled.", reply_markup=None)
-            except Exception:
-                pass
+        await _safe_edit(status, "🛑 Cancelled.", reply_markup=None)
         return
 
     for res, out in out_paths:
         if job.cancel_requested:
             break
 
-        # thumbnail is a Telegram file_id when set by /setthumbnail,
-        # otherwise we extract a frame from the encoded output.
-        thumb_id = settings.get("thumbnail")  # file_id or None
+        # thumbnail: Telegram file_id when set via /setthumbnail, else extract a frame
+        thumb_id = settings.get("thumbnail")
         if thumb_id:
-            # Download the stored file_id to a local jpg for the upload call
             thumb_dir = os.path.abspath(config.THUMB_DIR)
             os.makedirs(thumb_dir, exist_ok=True)
             thumb_path = os.path.join(thumb_dir, f"{job.job_id}_{res}_custom.jpg")
@@ -263,6 +262,9 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
             f"✅ {res} · {video['codec']} · CRF {video['crf']} · "
             f"{settings['audio']['codec']} {settings['audio']['bitrate']}"
         )
+
+        # FIX: upload_manager.upload now uses tg_call internally, so transient
+        # DC5 / RANDOM_ID_DUPLICATE errors are retried automatically.
         try:
             await upload_manager.upload(
                 client,
@@ -275,8 +277,9 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
             )
         except Exception as e:
             log.exception("Upload failed: %s", e)
+            # FIX: also wrap this fallback send in tg_call
             try:
-                await client.send_message(job.chat_id, f"❌ Upload failed: {e}")
+                await tg_call(lambda: client.send_message(job.chat_id, f"❌ Upload failed: {e}"))
             except Exception:
                 pass
 
@@ -290,11 +293,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
     for _, p in out_paths:
         _safe_remove(p)
 
-    if status:
-        try:
-            await status.edit_text("✅ Encode complete.", reply_markup=None)
-        except Exception:
-            pass
+    await _safe_edit(status, "✅ Encode complete.", reply_markup=None)
 
     try:
         await database.inc_stats("encodes", 1)
@@ -303,17 +302,17 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
 
     try:
         ratio = ""
-        if out_paths:
-            if in_size:
-                ratio = f" ({100 * out_size / in_size:.1f}% of source)"
-        await client.send_message(
+        if out_paths and in_size:
+            ratio = f" ({100 * out_size / in_size:.1f}% of source)"
+        await tg_call(lambda: client.send_message(
             config.LOG_CHANNEL,
             f"✅ Job `{job.job_id}` complete\n"
             f"File: {job.file_name}\n"
             f"Res: {', '.join(r for r, _ in out_paths) or 'none'}{ratio}",
-        )
+        ))
     except Exception:
         pass
+
 
 def _safe_remove(path):
     try:

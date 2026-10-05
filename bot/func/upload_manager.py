@@ -4,6 +4,7 @@ import time
 
 from bot import config
 from bot.func.pyroutils.progress import progress_for_pyrogram
+from bot.func.telegram_retry import tg_call
 from bot.logger import get_logger
 
 log = get_logger(__name__)
@@ -12,6 +13,7 @@ log = get_logger(__name__)
 _VIDEO_STREAMING_EXTS = {".mp4", ".mov", ".m4v"}
 
 _up_sem = asyncio.Semaphore(config.MAX_CONCURRENT_UPLOADS)
+
 
 async def upload(
     client,
@@ -41,7 +43,7 @@ async def upload(
 
         try:
             if as_video:
-                result = await client.send_video(
+                result = await tg_call(lambda: client.send_video(
                     chat_id,
                     path,
                     thumb=thumb,
@@ -50,9 +52,9 @@ async def upload(
                     reply_to_message_id=reply_to,
                     file_name=file_name,
                     **progress_kwargs,
-                )
+                ))
             else:
-                result = await client.send_document(
+                result = await tg_call(lambda: client.send_document(
                     chat_id,
                     path,
                     thumb=thumb,
@@ -60,7 +62,7 @@ async def upload(
                     reply_to_message_id=reply_to,
                     file_name=file_name,
                     **progress_kwargs,
-                )
+                ))
             log.info("Upload complete for %s (%.1fs)", path, time.time() - start)
             return result
         except Exception as e:
