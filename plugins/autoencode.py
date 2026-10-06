@@ -251,14 +251,19 @@ async def run_autoencode_job(
     download_dir = os.path.abspath(config.DOWNLOAD_DIR)
     os.makedirs(download_dir, exist_ok=True)
 
-    status = await _safe_send(client, job.chat_id, "⬇️ Downloading source file...")
+    status = await _safe_send(
+        client, job.chat_id,
+        "⬇️ <b>Downloading…</b>",
+        parse_mode="html",
+    )
 
     input_path = os.path.join(download_dir, f"{job.job_id}.src")
 
     # ── Download ──────────────────────────────────────────────────────────────
     try:
         input_path = await download_manager.download(
-            client, media_ref.file_id, input_path, message=status
+            client, media_ref.file_id, input_path,
+            message=status, ud_type="Downloading",
         )
     except Exception as e:
         log.exception("Auto-encode download failed: %s", e)
@@ -382,7 +387,8 @@ async def run_autoencode_job(
                 caption=caption,
                 as_video=bool(settings.get("output_as_video", True)),
                 message=status,
-                file_name=out_name,  # show correct name in Telegram
+                file_name=out_name,
+                ud_type=f"Uploading {res}",
             )
         except Exception as e:
             log.exception("Auto-encode upload failed: %s", e)
