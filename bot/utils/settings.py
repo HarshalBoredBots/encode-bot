@@ -26,7 +26,7 @@ DEFAULT_SETTINGS = {
     "profile": "custom",
     "video": {
         "crf": "23",
-        "preset": "slow",
+        "preset": "medium",
         "resolution": ["720p"],
         "codec": "libx264",
         "subtitle_mode": "copy",
@@ -116,7 +116,7 @@ def normalize_settings(raw) -> dict:
         crf = 23
     video["crf"] = str(max(0, min(51, crf)))
     if video.get("preset") not in VALID_PRESETS:
-        video["preset"] = "slow"
+        video["preset"] = "medium"
 
     res = video.get("resolution") or ["720p"]
     if isinstance(res, str):

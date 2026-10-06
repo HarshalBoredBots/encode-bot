@@ -36,7 +36,14 @@ FONT_PATH = "bot/fonts/Kufam-SemiBold.ttf"
 
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
 FFPROBE_BIN = os.environ.get("FFPROBE_BIN", "ffprobe")
-FFMPEG_THREADS = int(os.environ.get("FFMPEG_THREADS", "1"))
+
+# On Heroku Standard-2X (2 vCPU), use both cores for FFmpeg.
+# The bot itself is I/O-bound (asyncio) and consumes negligible CPU during encoding,
+# so we don't need to reserve a core for it.
+# Override by setting FFMPEG_THREADS in your Heroku config vars if needed.
+_cpu_count = os.cpu_count() or 2
+FFMPEG_THREADS = int(os.environ.get("FFMPEG_THREADS", str(_cpu_count)))
+
 FFMPEG_WALL_TIMEOUT = 28800
 
 UI_UPDATE_INTERVAL = 4.0

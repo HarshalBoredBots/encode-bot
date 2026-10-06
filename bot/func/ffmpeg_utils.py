@@ -229,14 +229,23 @@ def generate_ffmpeg_cmd(input_path: str, output_path: str, settings: dict, probe
         cmd += ["-c:v", "copy"]
     else:
         cmd += ["-c:v", codec]
+        threads = config.FFMPEG_THREADS
         if codec == "libx264":
-            cmd += ["-crf", crf, "-preset", preset]
+            cmd += ["-crf", crf, "-preset", preset, "-threads", str(threads)]
         elif codec == "libx265":
-            cmd += ["-crf", crf, "-preset", preset, "-tag:v", "hvc1"]
+            # libx265 uses x265-params for threading; the global -threads flag
+            # has no effect on it and can cause conflicts.
+            cmd += [
+                "-crf", crf, "-preset", preset, "-tag:v", "hvc1",
+                "-x265-params", f"pools={threads}:frame-threads={min(threads, 4)}",
+            ]
         elif codec == "libvpx-vp9":
-            cmd += ["-crf", crf, "-b:v", "0", "-cpu-used", "2", "-row-mt", "1"]
+            # row-mt already enables multi-threading; -threads controls tile/row workers
+            cmd += ["-crf", crf, "-b:v", "0", "-cpu-used", "2",
+                    "-row-mt", "1", "-threads", str(threads)]
         elif codec == "libaom-av1":
-            cmd += ["-crf", crf, "-b:v", "0", "-cpu-used", "4", "-row-mt", "1"]
+            cmd += ["-crf", crf, "-b:v", "0", "-cpu-used", "4",
+                    "-row-mt", "1", "-threads", str(threads)]
         cmd += ["-pix_fmt", "yuv420p"]
 
         target_res = resolutions[0] if resolutions else "720p"
@@ -287,7 +296,6 @@ def generate_ffmpeg_cmd(input_path: str, output_path: str, settings: dict, probe
             cmd += ["-metadata", f"{k}={v}"]
 
     cmd += [
-        "-threads", str(config.FFMPEG_THREADS),
         "-max_muxing_queue_size", "2048",
         "-bufsize", "2M",
     ]
