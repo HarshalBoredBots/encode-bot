@@ -120,8 +120,7 @@ async def main():
         try:
             await idle()
         finally:
-            log.info("Stop signal received. Waiting for running jobs to finish before exit...")
-            await queue_manager.stop(timeout=3600.0)
+            await queue_manager.stop()
             log.info("Bot stopped.")
 
 if __name__ == "__main__":

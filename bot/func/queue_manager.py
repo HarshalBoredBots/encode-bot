@@ -114,44 +114,8 @@ class QueueManager:
                 finally:
                     self.queue.task_done()
 
-    async def stop(self, timeout: float = 3600.0):
-        """
-        Graceful shutdown:
-        1. Stop accepting new jobs from the queue.
-        2. Wait up to `timeout` seconds for any currently-running job to finish.
-        3. Only then cancel the worker task.
-
-        Heroku sends SIGTERM and gives 30 s before SIGKILL, but a dyno restart
-        triggered by a deploy waits until the process exits. We set a generous
-        timeout so a long encode is never killed mid-way by a deploy.
-        """
+    async def stop(self):
         self.running = False
-
-        # Wait for all running jobs to complete
-        running_jobs = [j for j in self.jobs.values() if j.status == "running"]
-        if running_jobs:
-            log.info(
-                "Graceful shutdown: waiting for %d running job(s) to finish "
-                "(timeout=%.0fs)…",
-                len(running_jobs), timeout,
-            )
-            deadline = asyncio.get_event_loop().time() + timeout
-            while True:
-                still_running = [j for j in self.jobs.values() if j.status == "running"]
-                if not still_running:
-                    log.info("All jobs finished. Shutting down.")
-                    break
-                if asyncio.get_event_loop().time() >= deadline:
-                    log.warning(
-                        "Shutdown timeout reached; %d job(s) still running — "
-                        "forcing exit.", len(still_running)
-                    )
-                    for j in still_running:
-                        j.cancel_requested = True
-                    await asyncio.sleep(2)
-                    break
-                await asyncio.sleep(1)
-
         if self.worker_task:
             self.worker_task.cancel()
             try:

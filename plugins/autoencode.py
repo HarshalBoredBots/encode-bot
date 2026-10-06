@@ -25,30 +25,10 @@ from bot.func.ffmpeg_utils import probe_video, generate_ffmpeg_cmd
 from bot.func.media import extract_thumbnail
 from bot.func import download_manager, upload_manager
 from bot.func.queue_manager import queue_manager, Job
-from bot.func.telegram_retry import tg_call
 from bot.utils.format import humanbytes, TimeFormatter, resolve_encode_template
 from bot.utils.access import check_access
 from bot.logger import get_logger
 import database
-
-
-async def _safe_send(client, chat_id, text, **kwargs):
-    """Send a message with DC5 retry; returns message or None on failure."""
-    try:
-        return await tg_call(lambda: client.send_message(chat_id, text, **kwargs))
-    except Exception as e:
-        log.warning("Could not send message to %s: %s", chat_id, e)
-        return None
-
-
-async def _safe_edit(status, text, **kwargs):
-    """Edit status message silently; no-op if status is None."""
-    if status is None:
-        return
-    try:
-        await status.edit_text(text, **kwargs)
-    except Exception:
-        pass
 
 log = get_logger(__name__)
 
@@ -245,13 +225,19 @@ async def run_autoencode_job(
             f"Free: {humanbytes(free)} · Required: {humanbytes(config.MIN_FREE_DISK_BYTES)}"
         )
         log.warning("Disk space check failed for auto job %s: %s", job.job_id, msg)
-        await _safe_send(client, job.chat_id, msg)
+        try:
+            await client.send_message(job.chat_id, msg)
+        except Exception:
+            pass
         return
 
     download_dir = os.path.abspath(config.DOWNLOAD_DIR)
     os.makedirs(download_dir, exist_ok=True)
 
-    status = await _safe_send(client, job.chat_id, "⬇️ Downloading source file...")
+    try:
+        status = await client.send_message(job.chat_id, "⬇️ Downloading source file...")
+    except Exception:
+        status = None
 
     input_path = os.path.join(download_dir, f"{job.job_id}.src")
 
@@ -262,12 +248,20 @@ async def run_autoencode_job(
         )
     except Exception as e:
         log.exception("Auto-encode download failed: %s", e)
-        await _safe_edit(status, f"❌ Download failed: {e}")
+        if status:
+            try:
+                await status.edit_text(f"❌ Download failed: {e}")
+            except Exception:
+                pass
         return
 
     if job.cancel_requested:
         _safe_remove(input_path)
-        await _safe_edit(status, "🛑 Cancelled.")
+        if status:
+            try:
+                await status.edit_text("🛑 Cancelled.")
+            except Exception:
+                pass
         return
 
     # ── Probe ─────────────────────────────────────────────────────────────────
@@ -286,7 +280,13 @@ async def run_autoencode_job(
         for idx, res in enumerate(resolutions):
             if job.cancel_requested:
                 break
-            await _safe_edit(status, f"🎬 Encoding {res} ({idx + 1}/{len(resolutions)})...")
+            if status:
+                try:
+                    await status.edit_text(
+                        f"🎬 Encoding {res} ({idx + 1}/{len(resolutions)})..."
+                    )
+                except Exception:
+                    pass
 
             local_settings = copy.deepcopy(settings)
             local_settings["video"]["resolution"] = [res]
@@ -329,20 +329,34 @@ async def run_autoencode_job(
                     "Auto-encode produced no output for %s (exists=%s size=%d)",
                     res, exists, size,
                 )
-                await _safe_edit(status, f"❌ Encoding failed for {res} — no output file produced.")
+                if status:
+                    try:
+                        await status.edit_text(
+                            f"❌ Encoding failed for {res} — no output file produced."
+                        )
+                    except Exception:
+                        pass
                 continue
 
             out_paths.append((res, output_path, out_name))
 
     except Exception as e:
         log.exception("Auto-encode pipeline failed: %s", e)
-        await _safe_edit(status, f"❌ Encoding error: {e}")
+        if status:
+            try:
+                await status.edit_text(f"❌ Encoding error: {e}")
+            except Exception:
+                pass
 
     if job.cancel_requested:
         _safe_remove(input_path)
         for _, p, _ in out_paths:
             _safe_remove(p)
-        await _safe_edit(status, "🛑 Cancelled.")
+        if status:
+            try:
+                await status.edit_text("🛑 Cancelled.")
+            except Exception:
+                pass
         return
 
     # ── Upload ────────────────────────────────────────────────────────────────
@@ -386,14 +400,21 @@ async def run_autoencode_job(
             )
         except Exception as e:
             log.exception("Auto-encode upload failed: %s", e)
-            await _safe_send(client, job.chat_id, f"❌ Upload failed: {e}")
+            try:
+                await client.send_message(job.chat_id, f"❌ Upload failed: {e}")
+            except Exception:
+                pass
 
     # ── Cleanup ───────────────────────────────────────────────────────────────
     _safe_remove(input_path)
     for _, p, _ in out_paths:
         _safe_remove(p)
 
-    await _safe_edit(status, "✅ Auto-encode complete.")
+    if status:
+        try:
+            await status.edit_text("✅ Auto-encode complete.")
+        except Exception:
+            pass
 
     try:
         await database.inc_stats("encodes", 1)
@@ -401,11 +422,14 @@ async def run_autoencode_job(
         pass
 
     try:
-        await tg_call(lambda: client.send_message(
+        out_size = sum(
+            os.path.getsize(p) for _, p, _ in out_paths if os.path.isfile(p)
+        )
+        await client.send_message(
             config.LOG_CHANNEL,
             f"✅ Auto job `{job.job_id}` complete\n"
             f"Output: {output_filename}\n"
             f"Res: {', '.join(r for r, _, _ in out_paths) or 'none'}",
-        ))
+        )
     except Exception:
         pass
