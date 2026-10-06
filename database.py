@@ -139,3 +139,39 @@ async def set_premium_user(user_id: int, value: bool) -> None:
         {"$set": {"is_premium": value}},
         upsert=True,
     )
+
+
+# ── Persistent job queue ──────────────────────────────────────────────────────
+# Jobs are written to MongoDB before starting so they survive dyno restarts.
+# On startup __main__.py calls recover_interrupted_jobs() to re-queue anything
+# that was "running" when the process was killed.
+
+async def save_job(job_doc: dict) -> None:
+    """Upsert a job document (keyed by job_id)."""
+    await _db.jobs.update_one(
+        {"_id": job_doc["job_id"]},
+        {"$set": {**job_doc, "updated_at": datetime.utcnow()}},
+        upsert=True,
+    )
+
+async def mark_job_done(job_id: str, status: str = "completed") -> None:
+    """Mark a job as completed/failed/cancelled so it won't be recovered."""
+    await _db.jobs.update_one(
+        {"_id": job_id},
+        {"$set": {"status": status, "updated_at": datetime.utcnow()}},
+    )
+
+async def get_interrupted_jobs() -> list:
+    """
+    Return all jobs that were 'running' when the bot last died.
+    These need to be re-queued on startup.
+    """
+    cursor = _db.jobs.find({"status": "running"})
+    return await cursor.to_list(length=None)
+
+async def ensure_job_indexes() -> None:
+    try:
+        await _db.jobs.create_index("status")
+        await _db.jobs.create_index("updated_at", expireAfterSeconds=86400 * 7)  # TTL 7 days
+    except Exception:
+        pass

@@ -10,16 +10,23 @@ log = get_logger(__name__)
 
 _dl_sem = asyncio.Semaphore(config.MAX_CONCURRENT_DOWNLOADS)
 
-async def download(client, file_id: str, destination: str, message=None, ud_type: str = "⬇️ Downloading..."):
+
+async def download(
+    client,
+    file_id: str,
+    destination: str,
+    message=None,
+    ud_type: str = "Downloading",
+):
     os.makedirs(os.path.dirname(destination) or ".", exist_ok=True)
+
     async with _dl_sem:
         start = time.time()
-        kwargs = {
-            "file_name": destination,
-        }
+        kwargs = {"file_name": destination}
         if message is not None:
-            kwargs["progress"] = progress_for_pyrogram
+            kwargs["progress"]      = progress_for_pyrogram
             kwargs["progress_args"] = (ud_type, message, start)
+
         path = await client.download_media(file_id, **kwargs)
-        log.info("Downloaded %s -> %s", file_id, path)
+        log.info("Downloaded %s -> %s (%.1fs)", file_id, path, time.time() - start)
         return path

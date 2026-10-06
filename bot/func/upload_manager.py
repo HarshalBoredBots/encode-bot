@@ -25,6 +25,7 @@ async def upload(
     reply_to: int = None,
     message=None,
     file_name: str = None,
+    ud_type: str = "Uploading",
 ):
     ext = os.path.splitext(path)[1].lower()
     # Force document upload for formats Telegram can't stream (mkv, avi, etc.)
@@ -32,35 +33,38 @@ async def upload(
         log.info("Output is %s, switching from send_video to send_document", ext)
         as_video = False
 
-    log.info("Uploading %s to chat %s as %s", path, chat_id, "video" if as_video else "document")
+    log.info(
+        "Uploading %s to chat %s as %s",
+        path, chat_id, "video" if as_video else "document",
+    )
 
     async with _up_sem:
         start = time.time()
         progress_kwargs = {}
         if message is not None:
-            progress_kwargs["progress"] = progress_for_pyrogram
-            progress_kwargs["progress_args"] = ("⬆️ Uploading...", message, start)
+            progress_kwargs["progress"]      = progress_for_pyrogram
+            progress_kwargs["progress_args"] = (ud_type, message, start)
 
         try:
             if as_video:
                 result = await tg_call(lambda: client.send_video(
                     chat_id,
                     path,
-                    thumb=thumb,
-                    caption=caption,
-                    supports_streaming=True,
-                    reply_to_message_id=reply_to,
-                    file_name=file_name,
+                    thumb                = thumb,
+                    caption              = caption,
+                    supports_streaming   = True,
+                    reply_to_message_id  = reply_to,
+                    file_name            = file_name,
                     **progress_kwargs,
                 ))
             else:
                 result = await tg_call(lambda: client.send_document(
                     chat_id,
                     path,
-                    thumb=thumb,
-                    caption=caption,
-                    reply_to_message_id=reply_to,
-                    file_name=file_name,
+                    thumb               = thumb,
+                    caption             = caption,
+                    reply_to_message_id = reply_to,
+                    file_name           = file_name,
                     **progress_kwargs,
                 ))
             log.info("Upload complete for %s (%.1fs)", path, time.time() - start)

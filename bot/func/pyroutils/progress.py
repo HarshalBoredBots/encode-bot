@@ -1,35 +1,48 @@
 import time
-from bot.utils.format import humanbytes as _hb, TimeFormatter as _tf
-
-humanbytes = _hb
-TimeFormatter = _tf
+from bot.utils.format import humanbytes, TimeFormatter
 
 _last_update: dict = {}
 
+
 async def progress_for_pyrogram(current, total, ud_type, message, start):
-    if message is None or total is None or total <= 0:
+    """
+    Universal download/upload progress callback for Pyrogram.
+    Shows a clean bar with speed and ETA. Rate-limited to once every 4 s.
+    """
+    if message is None or not total or total <= 0:
         return
-    now = time.time()
-    diff = now - start
-    key = (getattr(message, "chat", None) and message.chat.id, message.id, ud_type)
+
+    now  = time.time()
+    key  = (getattr(message, "chat", None) and message.chat.id, message.id, ud_type)
     last = _last_update.get(key, 0.0)
-    if now - last < 4.0 and current < total:
+
+    # Throttle — but always send the final 100 % update
+    if current < total and now - last < 4.0:
         return
     _last_update[key] = now
 
-    percentage = current * 100 / total
-    speed = current / diff if diff > 0 else 0.0
-    eta = (total - current) / speed if speed > 0 else 0.0
-    filled = int(percentage // 10)
-    bar = "█" * filled + "─" * (10 - filled)
+    elapsed    = max(now - start, 0.001)
+    speed      = current / elapsed          # bytes/s
+    pct        = current * 100 / total
+    eta        = (total - current) / speed if speed > 0 else 0
+    filled     = int(pct // 10)
+    bar        = "█" * filled + "─" * (10 - filled)
+
+    # Choose icon based on direction
+    if "upload" in ud_type.lower() or "⬆" in ud_type:
+        icon = "⬆️"
+    elif "download" in ud_type.lower() or "⬇" in ud_type:
+        icon = "⬇️"
+    else:
+        icon = "🔄"
 
     text = (
-        f"{ud_type}\n"
-        f"[{bar}] {percentage:.1f}%\n"
-        f"{humanbytes(current)} / {humanbytes(total)}\n"
-        f"{humanbytes(speed)}/s · ETA: {TimeFormatter(eta)}"
+        f"{icon} <b>{ud_type}</b>\n"
+        f"<code>[{bar}]</code> <b>{pct:.1f}%</b>\n"
+        f"📦 {humanbytes(current)} / {humanbytes(total)}\n"
+        f"⚡ {humanbytes(speed)}/s  ·  ⏱ ETA: {TimeFormatter(int(eta))}"
     )
     try:
-        await message.edit_text(text)
+        await message.edit_text(text, parse_mode="html")
     except Exception:
         pass
