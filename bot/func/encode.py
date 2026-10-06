@@ -33,10 +33,12 @@ async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
         *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
     )
     last_update = 0.0
+    last_log = 0.0          # last time we wrote a Heroku log line
+    LOG_INTERVAL = 60.0     # write to Heroku logs every 60 seconds
     stderr_lines = []
 
     async def read_stderr():
-        nonlocal last_update
+        nonlocal last_update, last_log
         while True:
             try:
                 line = await proc.stderr.readline()
@@ -55,15 +57,36 @@ async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
                     pass
                 return
             now = time.time()
-            if now - last_update < config.UI_UPDATE_INTERVAL:
-                continue
             m = _TIME_RE.search(line)
             if not m or duration <= 0:
                 continue
-            last_update = now
+
             h, mm, ss = int(m.group(1)), int(m.group(2)), float(m.group(3))
             cur = h * 3600 + mm * 60 + ss
             pct = min(cur / duration, 1.0)
+
+            # ── Heroku log line every LOG_INTERVAL seconds ──────────────────
+            if now - last_log >= LOG_INTERVAL:
+                last_log = now
+                v = settings["video"]
+                elapsed = now - (last_log - LOG_INTERVAL + LOG_INTERVAL)
+                log.info(
+                    "Encoding [%s] job=%s res=%s %.1f%% (%s / %s) crf=%s preset=%s pid=%d",
+                    job.file_name or "unknown",
+                    job.job_id[:8],
+                    v.get("resolution", ["?"])[0],
+                    pct * 100,
+                    TimeFormatter(int(cur)),
+                    TimeFormatter(int(duration)),
+                    v.get("crf", "?"),
+                    v.get("preset", "?"),
+                    proc.pid,
+                )
+
+            # ── Telegram status update ───────────────────────────────────────
+            if now - last_update < config.UI_UPDATE_INTERVAL:
+                continue
+            last_update = now
             filled = int(pct * 10)
             bar = "█" * filled + "─" * (10 - filled)
             v = settings["video"]
