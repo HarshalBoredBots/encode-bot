@@ -109,7 +109,7 @@ async def s_codec(client, cq):
         [_cb("H.264 (libx264)", "sc:libx264", cur == "libx264"),
          _cb("H.265 (libx265)", "sc:libx265", cur == "libx265")],
         [_cb("VP9 (libvpx-vp9)", "sc:libvpx-vp9", cur == "libvpx-vp9"),
-         _cb("AV1 (libaom-av1)", "sc:libaom-av1", cur == "libaom-av1")],
+         _cb("SVT-AV1 (libsvtav1)", "sc:libsvtav1", cur == "libsvtav1")],
         [_b("◀️ Back", "settings_home")],
     ])
     await _render(cq, f"🎬 **Video codec** — current: `{cur}`", kb)
@@ -130,17 +130,32 @@ async def sc_set(client, cq):
 async def s_preset(client, cq):
     s = await database.get_user_settings(cq.from_user.id)
     cur = s["video"]["preset"]
+    codec = s["video"]["codec"]
     rows = []
-    row = []
-    for p in VALID_PRESETS:
-        row.append(_cb(p, f"sp:{p}", p == cur))
-        if len(row) == 3:
+    if codec == "libsvtav1":
+        # SVT-AV1 uses numeric presets 0-8 (0=slowest/best, 8=fastest)
+        svt_presets = ["0", "1", "2", "3", "4", "5", "6", "7", "8"]
+        row = []
+        for p in svt_presets:
+            row.append(_cb(p, f"sp:{p}", p == cur))
+            if len(row) == 3:
+                rows.append(row)
+                row = []
+        if row:
             rows.append(row)
-            row = []
-    if row:
-        rows.append(row)
+        hint = "SVT-AV1 presets: 0=best quality/slowest · 4=balanced · 8=fastest\nRecommended: 4"
+    else:
+        row = []
+        for p in VALID_PRESETS:
+            row.append(_cb(p, f"sp:{p}", p == cur))
+            if len(row) == 3:
+                rows.append(row)
+                row = []
+        if row:
+            rows.append(row)
+        hint = "Slower presets give smaller files but take longer."
     rows.append([_b("◀️ Back", "settings_home")])
-    await _render(cq, f"⚡ **Preset** — current: `{cur}`\n\nVery slow presets give smaller files but take longer.", InlineKeyboardMarkup(rows))
+    await _render(cq, f"⚡ **Preset** — current: `{cur}`\n\n{hint}", InlineKeyboardMarkup(rows))
     await cq.answer()
 
 @Client.on_callback_query(filters.regex(r"^sp:"))

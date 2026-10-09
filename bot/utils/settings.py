@@ -4,7 +4,7 @@ import re
 
 DEFAULT_FONT_PATH = "bot/fonts/Kufam-SemiBold.ttf"
 
-VALID_CODECS = {"libx264", "libx265", "libvpx-vp9", "libaom-av1"}
+VALID_CODECS = {"libx264", "libx265", "libvpx-vp9", "libsvtav1"}
 VALID_PRESETS = [
     "ultrafast", "superfast", "veryfast", "faster", "fast",
     "medium", "slow", "slower", "veryslow",
@@ -114,9 +114,20 @@ def normalize_settings(raw) -> dict:
         crf = int(video.get("crf", 23))
     except (TypeError, ValueError):
         crf = 23
-    video["crf"] = str(max(0, min(51, crf)))
-    if video.get("preset") not in VALID_PRESETS:
-        video["preset"] = "medium"
+    # SVT-AV1 CRF range is 0-63, others are 0-51
+    crf_max = 63 if video.get("codec") == "libsvtav1" else 51
+    video["crf"] = str(max(0, min(crf_max, crf)))
+    # SVT-AV1 uses numeric presets (0-8), x264/x265/vp9 use named presets
+    codec = video.get("codec", "libx264")
+    if codec == "libsvtav1":
+        try:
+            p = int(video.get("preset", 4))
+            video["preset"] = str(max(0, min(8, p)))
+        except (TypeError, ValueError):
+            video["preset"] = "4"
+    else:
+        if video.get("preset") not in VALID_PRESETS:
+            video["preset"] = "medium"
 
     res = video.get("resolution") or ["720p"]
     if isinstance(res, str):

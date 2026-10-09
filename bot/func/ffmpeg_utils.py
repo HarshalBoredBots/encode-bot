@@ -8,7 +8,7 @@ from bot.utils.settings import WATERMARK_POSITIONS, DEFAULT_FONT_PATH
 
 log = get_logger(__name__)
 
-VALID_CODECS = {"libx264", "libx265", "libvpx-vp9", "libaom-av1"}
+VALID_CODECS = {"libx264", "libx265", "libvpx-vp9", "libsvtav1"}
 VALID_PRESETS = [
     "ultrafast", "superfast", "veryfast", "faster", "fast",
     "medium", "slow", "slower", "veryslow",
@@ -243,9 +243,17 @@ def generate_ffmpeg_cmd(input_path: str, output_path: str, settings: dict, probe
             # row-mt already enables multi-threading; -threads controls tile/row workers
             cmd += ["-crf", crf, "-b:v", "0", "-cpu-used", "2",
                     "-row-mt", "1", "-threads", str(threads)]
-        elif codec == "libaom-av1":
-            cmd += ["-crf", crf, "-b:v", "0", "-cpu-used", "4",
-                    "-row-mt", "1", "-threads", str(threads)]
+        elif codec == "libsvtav1":
+            # SVT-AV1: CRF-based quality, numeric preset (0=slowest/best, 8=fastest)
+            # preset comes from settings (default 4 = balanced)
+            try:
+                svt_preset = max(0, min(8, int(preset)))
+            except (TypeError, ValueError):
+                svt_preset = 4
+            cmd += [
+                "-crf", crf, "-b:v", "0",
+                "-svtav1-params", f"preset={svt_preset}:lp={threads}",
+            ]
         cmd += ["-pix_fmt", "yuv420p"]
 
         target_res = resolutions[0] if resolutions else "720p"
