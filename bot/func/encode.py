@@ -317,7 +317,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
         _safe_remove(input_path)
         for _, p in out_paths:
             _safe_remove(p)
-        await _safe_edit(status, "🛑 Cancelled.", reply_markup=None)
+        await _safe_edit(status, "🛑 <b>Cancelled.</b>", parse_mode="html", reply_markup=None)
         return
 
     # ── Upload loop ──────────────────────────────────────────────────────────
@@ -386,7 +386,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
             except Exception:
                 pass
 
-    # ── Cleanup ──────────────────────────────────────────────────────────────
+    # ── Cleanup — always runs, cancel or not ─────────────────────────────────
     try:
         in_size = os.path.getsize(input_path) if os.path.isfile(input_path) else 0
     except Exception:
@@ -396,6 +396,10 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
     _safe_remove(input_path)
     for _, p in out_paths:
         _safe_remove(p)
+
+    if job.cancel_requested:
+        await _safe_edit(status, "🛑 <b>Cancelled.</b>", parse_mode="html", reply_markup=None)
+        return
 
     await _safe_edit(status, "✅ <b>Encode complete!</b>", reply_markup=None)
 

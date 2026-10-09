@@ -250,9 +250,13 @@ def generate_ffmpeg_cmd(input_path: str, output_path: str, settings: dict, probe
                 svt_preset = max(0, min(8, int(preset)))
             except (TypeError, ValueError):
                 svt_preset = 4
+            # lp controls parallel threads in SVT-AV1
+            # Heroku reports 8 CPUs but only has 1GB RAM
+            # lp=8 uses ~1.9GB RAM and crashes — cap at 2 (~400MB safe)
+            svt_lp = min(threads, 2)
             cmd += [
                 "-crf", crf, "-b:v", "0",
-                "-svtav1-params", f"preset={svt_preset}:lp={threads}",
+                "-svtav1-params", f"preset={svt_preset}:lp={svt_lp}",
             ]
         cmd += ["-pix_fmt", "yuv420p"]
 

@@ -41,7 +41,9 @@ FFPROBE_BIN = os.environ.get("FFPROBE_BIN", "ffprobe")
 # The bot itself is I/O-bound (asyncio) and consumes negligible CPU during encoding,
 # so we don't need to reserve a core for it.
 # Override by setting FFMPEG_THREADS in your Heroku config vars if needed.
-_cpu_count = os.cpu_count() or 2
+# Heroku reports 8 CPUs but RAM is only 1GB
+# Cap threads at 2 to prevent OOM crashes (especially with SVT-AV1)
+_cpu_count = min(os.cpu_count() or 2, 2)
 FFMPEG_THREADS = int(os.environ.get("FFMPEG_THREADS", str(_cpu_count)))
 
 FFMPEG_WALL_TIMEOUT = 28800

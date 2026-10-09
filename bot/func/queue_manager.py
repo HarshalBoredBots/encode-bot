@@ -105,6 +105,8 @@ class QueueManager:
             return True
         if job.status == "pending":
             job.status = "cancelled"
+            # Remove immediately so user queue count drops at once
+            self.jobs.pop(job_id, None)
             return True
         return False
 

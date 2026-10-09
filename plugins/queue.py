@@ -177,7 +177,9 @@ async def cancel_job_cb(client, cq):
         await cq.answer("🛑 Cancellation requested.")
         try:
             await cq.message.edit_text(
-                cq.message.text.markdown + "\n\n`🛑 Cancellation requested…`"
+                "🛑 <b>Cancellation requested…</b>",
+                parse_mode="html",
+                reply_markup=None,
             )
         except Exception:
             pass
