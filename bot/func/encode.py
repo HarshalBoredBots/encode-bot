@@ -5,6 +5,7 @@ import re
 import shutil
 import time
 
+from pyrogram import enums
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from bot import config
@@ -146,7 +147,7 @@ async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
                 try:
                     await status_msg.edit_text(
                         text,
-                        parse_mode   = "html",
+                        parse_mode   = enums.ParseMode.HTML,
                         reply_markup = _cancel_markup(job.job_id),
                     )
                 except Exception:
@@ -177,6 +178,7 @@ async def _run_ffmpeg(cmd, job, status_msg, duration, settings):
 
 
 async def _safe_send_message(client, chat_id, text, **kwargs):
+    kwargs.setdefault("parse_mode", enums.ParseMode.HTML)
     try:
         return await tg_call(lambda: client.send_message(chat_id, text, **kwargs))
     except Exception as e:
@@ -184,7 +186,7 @@ async def _safe_send_message(client, chat_id, text, **kwargs):
         return None
 
 
-async def _safe_edit(status, text, parse_mode="html", **kwargs):
+async def _safe_edit(status, text, parse_mode=enums.ParseMode.HTML, **kwargs):
     if status is None:
         return
     try:
@@ -213,7 +215,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
             f"Free: {humanbytes(free)}  ·  Required: {humanbytes(config.MIN_FREE_DISK_BYTES)}"
         )
         log.warning("Disk space check failed for job %s", job.job_id)
-        await _safe_send_message(client, job.chat_id, msg, parse_mode="html")
+        await _safe_send_message(client, job.chat_id, msg, parse_mode=enums.ParseMode.HTML)
         return
 
     download_dir = os.path.abspath(config.DOWNLOAD_DIR)
@@ -224,7 +226,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
         client,
         job.chat_id,
         "⬇️ <b>Downloading…</b>",
-        parse_mode   = "html",
+        parse_mode=enums.ParseMode.HTML,
         reply_markup = _cancel_markup(job.job_id),
     )
 
@@ -273,7 +275,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
                     f"🎞 {video.get('codec','libx264')}  ·  "
                     f"CRF {video.get('crf','?')}  ·  {video.get('preset','?')}"
                 ),
-                parse_mode   = "html",
+                parse_mode=enums.ParseMode.HTML,
                 reply_markup = _cancel_markup(job.job_id),
             )
 
@@ -317,7 +319,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
         _safe_remove(input_path)
         for _, p in out_paths:
             _safe_remove(p)
-        await _safe_edit(status, "🛑 <b>Cancelled.</b>", parse_mode="html", reply_markup=None)
+        await _safe_edit(status, "🛑 <b>Cancelled.</b>", parse_mode=enums.ParseMode.HTML, reply_markup=None)
         return
 
     # ── Upload loop ──────────────────────────────────────────────────────────
@@ -335,29 +337,33 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
                 f"📦 0 B / {humanbytes(out_size)}\n"
                 f"⚡ — · ⏱ ETA: —"
             ),
-            parse_mode = "html",
+            parse_mode=enums.ParseMode.HTML,
         )
 
         # thumbnail
+        thumb_path = None
+        thumb_dir  = os.path.abspath(config.THUMB_DIR)
+        os.makedirs(thumb_dir, exist_ok=True)
+
         thumb_id = settings.get("thumbnail")
         if thumb_id:
-            thumb_dir  = os.path.abspath(config.THUMB_DIR)
-            os.makedirs(thumb_dir, exist_ok=True)
             thumb_path = os.path.join(thumb_dir, f"{job.job_id}_{res}_custom.jpg")
             try:
                 await client.download_media(thumb_id, file_name=thumb_path)
                 if not os.path.isfile(thumb_path) or os.path.getsize(thumb_path) == 0:
+                    _safe_remove(thumb_path)
                     thumb_path = None
             except Exception:
+                _safe_remove(thumb_path)
                 thumb_path = None
         else:
-            thumb_dir  = os.path.abspath(config.THUMB_DIR)
-            os.makedirs(thumb_dir, exist_ok=True)
             thumb_path = os.path.join(thumb_dir, f"{job.job_id}_{res}.jpg")
             try:
                 if not await extract_thumbnail(out, thumb_path, duration):
+                    _safe_remove(thumb_path)
                     thumb_path = None
             except Exception:
+                _safe_remove(thumb_path)
                 thumb_path = None
 
         caption = (
@@ -378,13 +384,13 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
             )
         except Exception as e:
             log.exception("Upload failed: %s", e)
-            try:
-                await tg_call(lambda: client.send_message(
-                    job.chat_id, f"❌ <b>Upload failed ({res}):</b> <code>{e}</code>",
-                    parse_mode="html",
-                ))
-            except Exception:
-                pass
+            await _safe_send_message(
+                client, job.chat_id,
+                f"❌ <b>Upload failed ({res}):</b> <code>{e}</code>",
+            )
+        finally:
+            # Always clean up the thumb — even if upload failed
+            _safe_remove(thumb_path)
 
     # ── Cleanup — always runs, cancel or not ─────────────────────────────────
     try:
@@ -398,7 +404,7 @@ async def run_encode_job(client, job, media_ref, src_chat_id: int, src_message_i
         _safe_remove(p)
 
     if job.cancel_requested:
-        await _safe_edit(status, "🛑 <b>Cancelled.</b>", parse_mode="html", reply_markup=None)
+        await _safe_edit(status, "🛑 <b>Cancelled.</b>", parse_mode=enums.ParseMode.HTML, reply_markup=None)
         return
 
     await _safe_edit(status, "✅ <b>Encode complete!</b>", reply_markup=None)

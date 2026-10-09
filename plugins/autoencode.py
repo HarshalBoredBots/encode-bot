@@ -16,7 +16,7 @@ import shutil
 import time
 import uuid
 
-from pyrogram import Client, filters
+from pyrogram import Client, filters, enums
 from pyrogram.types import Message
 
 from bot import config
@@ -34,6 +34,8 @@ import database
 
 async def _safe_send(client, chat_id, text, **kwargs):
     """Send a message with DC5 retry; returns message or None on failure."""
+    # Always use HTML parse mode unless caller explicitly overrides
+    kwargs.setdefault("parse_mode", enums.ParseMode.HTML)
     try:
         return await tg_call(lambda: client.send_message(chat_id, text, **kwargs))
     except Exception as e:
@@ -45,6 +47,8 @@ async def _safe_edit(status, text, **kwargs):
     """Edit status message silently; no-op if status is None."""
     if status is None:
         return
+    # Always use HTML parse mode unless caller explicitly overrides
+    kwargs.setdefault("parse_mode", enums.ParseMode.HTML)
     try:
         await status.edit_text(text, **kwargs)
     except Exception:
@@ -254,7 +258,6 @@ async def run_autoencode_job(
     status = await _safe_send(
         client, job.chat_id,
         "⬇️ <b>Downloading…</b>",
-        parse_mode="html",
     )
 
     input_path = os.path.join(download_dir, f"{job.job_id}.src")
@@ -297,15 +300,6 @@ async def run_autoencode_job(
             local_settings["video"]["resolution"] = [res]
 
             out_ext = "." + str(video.get("output_format", "mkv"))
-
-            # Resolve output filename with the actual encode resolution for this pass
-            encode_res = res
-            out_name = resolve_encode_template(
-                output_filename if len(resolutions) == 1
-                else re.sub(r'\.\w+$', '', output_filename),  # strip ext for multi-res
-                os.path.basename(input_path),
-                encode_res,
-            ) if False else output_filename  # output_filename already resolved; just tag multi
 
             if len(resolutions) == 1:
                 out_name = output_filename
@@ -355,25 +349,29 @@ async def run_autoencode_job(
         if job.cancel_requested:
             break
 
+        thumb_path = None
+        thumb_dir = os.path.abspath(config.THUMB_DIR)
+        os.makedirs(thumb_dir, exist_ok=True)
+
         thumb_id = settings.get("thumbnail")  # Telegram file_id or None
         if thumb_id:
-            thumb_dir = os.path.abspath(config.THUMB_DIR)
-            os.makedirs(thumb_dir, exist_ok=True)
             thumb_path = os.path.join(thumb_dir, f"{job.job_id}_{res}_custom.jpg")
             try:
                 await client.download_media(thumb_id, file_name=thumb_path)
                 if not os.path.isfile(thumb_path) or os.path.getsize(thumb_path) == 0:
+                    _safe_remove(thumb_path)
                     thumb_path = None
             except Exception:
+                _safe_remove(thumb_path)
                 thumb_path = None
         else:
-            thumb_dir = os.path.abspath(config.THUMB_DIR)
-            os.makedirs(thumb_dir, exist_ok=True)
             thumb_path = os.path.join(thumb_dir, f"{job.job_id}_{res}.jpg")
             try:
                 if not await extract_thumbnail(out, thumb_path, duration):
+                    _safe_remove(thumb_path)
                     thumb_path = None
             except Exception:
+                _safe_remove(thumb_path)
                 thumb_path = None
 
         caption = out_name
@@ -393,6 +391,9 @@ async def run_autoencode_job(
         except Exception as e:
             log.exception("Auto-encode upload failed: %s", e)
             await _safe_send(client, job.chat_id, f"❌ Upload failed: {e}")
+        finally:
+            # Always clean up the thumb — even if upload failed
+            _safe_remove(thumb_path)
 
     # ── Cleanup ───────────────────────────────────────────────────────────────
     _safe_remove(input_path)
