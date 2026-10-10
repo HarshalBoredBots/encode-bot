@@ -34,8 +34,8 @@ WATERMARK_DIR = "watermarks"
 FONT_DIR = "fonts"
 FONT_PATH = "bot/fonts/Kufam-SemiBold.ttf"
 
-FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
-FFPROBE_BIN = os.environ.get("FFPROBE_BIN", "ffprobe")
+FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "/app/ffmpeg-static/ffmpeg")
+FFPROBE_BIN = os.environ.get("FFPROBE_BIN", "/app/ffmpeg-static/ffprobe")
 
 # On Heroku Standard-2X (2 vCPU), use both cores for FFmpeg.
 # The bot itself is I/O-bound (asyncio) and consumes negligible CPU during encoding,
@@ -67,10 +67,10 @@ def validate_config():
         errors.append("OWNER_ID is missing.")
     if not DATABASE_URL:
         errors.append("DATABASE_URL is missing.")
-    if not shutil.which(FFMPEG_BIN):
-        errors.append(f"ffmpeg binary not found on PATH: {FFMPEG_BIN}")
-    if not shutil.which(FFPROBE_BIN):
-        errors.append(f"ffprobe binary not found on PATH: {FFPROBE_BIN}")
+    if not shutil.which(FFMPEG_BIN) and not os.path.isfile(FFMPEG_BIN):
+        errors.append(f"ffmpeg binary not found: {FFMPEG_BIN}")
+    if not shutil.which(FFPROBE_BIN) and not os.path.isfile(FFPROBE_BIN):
+        errors.append(f"ffprobe binary not found: {FFPROBE_BIN}")
 
     for d in (DOWNLOAD_DIR, THUMB_DIR, WATERMARK_DIR, FONT_DIR, "logs", "bot/fonts"):
         try:
