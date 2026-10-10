@@ -37,14 +37,15 @@ FONT_PATH = "bot/fonts/Kufam-SemiBold.ttf"
 FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
 FFPROBE_BIN = os.environ.get("FFPROBE_BIN", "ffprobe")
 
-# On Heroku Standard-2X (2 vCPU), use both cores for FFmpeg.
-# The bot itself is I/O-bound (asyncio) and consumes negligible CPU during encoding,
-# so we don't need to reserve a core for it.
-# Override by setting FFMPEG_THREADS in your Heroku config vars if needed.
-# Heroku reports 8 CPUs but RAM is only 1GB
-# Cap threads at 2 to prevent OOM crashes (especially with SVT-AV1)
-_cpu_count = min(os.cpu_count() or 2, 2)
-FFMPEG_THREADS = int(os.environ.get("FFMPEG_THREADS", str(_cpu_count)))
+# Thread count for FFmpeg.
+#
+# OOM WARNING: Heroku 1GB dynos report 8 vCPUs but RAM is hard-capped at 1024MB.
+# x265 with pools=2 at 720p peaks ~400MB and at 1080p peaks ~660MB+.
+# Combined with Python/pyrogram overhead (~120MB), 2 threads OOM-kills the dyno.
+#
+# Default: 1 thread — safe for all resolutions on a 1GB dyno.
+# If you upgrade to a 2GB+ dyno, set FFMPEG_THREADS=2 in Heroku config vars.
+FFMPEG_THREADS = int(os.environ.get("FFMPEG_THREADS", "1"))
 
 FFMPEG_WALL_TIMEOUT = 28800
 

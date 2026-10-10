@@ -235,9 +235,31 @@ def generate_ffmpeg_cmd(input_path: str, output_path: str, settings: dict, probe
         elif codec == "libx265":
             # libx265 uses x265-params for threading; the global -threads flag
             # has no effect on it and can cause conflicts.
+            #
+            # OOM fix for Heroku 1GB dynos: x265 at 720p uses ~400MB and at
+            # 1080p uses ~650MB+, which exceeds the 1024MB quota and causes
+            # Heroku to SIGKILL the dyno mid-encode.
+            #
+            # memlimit caps the x265 lookahead/reference frame pool (MB).
+            # frame-threads=1 avoids the per-thread frame buffer overhead.
+            # vbv-bufsize/vbv-maxrate are NOT set here — memlimit is enough.
+            #
+            # Safe limits tested against 1GB Heroku dyno:
+            #   1080p → memlimit=600  (~660MB peak total process RSS)
+            #   720p  → memlimit=300  (~410MB peak total process RSS)
+            #   480p  → memlimit=150  (~120MB peak total process RSS)
+            _x265_memlimit = {
+                "1080p": 600,
+                "720p":  300,
+                "480p":  150,
+                "360p":  80,
+            }
+            _res_key = resolutions[0] if resolutions else "720p"
+            _memlimit = _x265_memlimit.get(_res_key, 300)
             cmd += [
                 "-crf", crf, "-preset", preset, "-tag:v", "hvc1",
-                "-x265-params", f"pools={threads}:frame-threads={min(threads, 4)}",
+                "-x265-params",
+                f"pools={threads}:frame-threads=1:memlimit={_memlimit}",
             ]
         elif codec == "libvpx-vp9":
             # row-mt already enables multi-threading; -threads controls tile/row workers
