@@ -317,6 +317,17 @@ async def run_autoencode_job(
             cmd = generate_ffmpeg_cmd(input_path, output_path, local_settings, probe_data)
             log.info("Auto FFmpeg cmd (%s): %s", res, " ".join(cmd))
 
+            # Notify LOG_CHANNEL that encoding has started for this resolution
+            try:
+                await tg_call(lambda: client.send_message(
+                    config.LOG_CHANNEL,
+                    f"🎬 Auto job `{job.job_id[:8]}` started encoding <b>{res}</b>\n"
+                    f"Output: {output_filename}\n"
+                    f"Duration: {int(duration)}s",
+                ))
+            except Exception:
+                pass
+
             await _run_ffmpeg(cmd, job, status, duration, local_settings)
 
             if job.cancel_requested:
@@ -328,14 +339,36 @@ async def run_autoencode_job(
                     "Auto-encode produced no output for %s (exists=%s size=%d)",
                     res, exists, size,
                 )
-                await _safe_edit(status, f"❌ Encoding failed for {res} — no output file produced.")
+                fail_msg = f"❌ Encoding failed for <b>{res}</b> — no output file produced."
+                await _safe_edit(status, fail_msg)
+                # Always notify LOG_CHANNEL so the failure is never silent
+                try:
+                    await tg_call(lambda: client.send_message(
+                        config.LOG_CHANNEL,
+                        f"❌ Auto job `{job.job_id}` encode failed\n"
+                        f"Output: {output_filename}\n"
+                        f"Res: {res} — no output file (exists={exists} size={size})",
+                    ))
+                except Exception:
+                    pass
                 continue
 
             out_paths.append((res, output_path, out_name))
 
     except Exception as e:
         log.exception("Auto-encode pipeline failed: %s", e)
-        await _safe_edit(status, f"❌ Encoding error: {e}")
+        await _safe_edit(status, f"❌ Encoding error: <code>{e}</code>")
+        # Fallback: send a fresh message in case the status edit failed
+        await _safe_send(client, job.chat_id, f"❌ Encoding error: <code>{e}</code>")
+        try:
+            await tg_call(lambda: client.send_message(
+                config.LOG_CHANNEL,
+                f"❌ Auto job `{job.job_id}` pipeline exception\n"
+                f"Output: {output_filename}\n"
+                f"Error: {e}",
+            ))
+        except Exception:
+            pass
 
     if job.cancel_requested:
         _safe_remove(input_path)
@@ -390,7 +423,16 @@ async def run_autoencode_job(
             )
         except Exception as e:
             log.exception("Auto-encode upload failed: %s", e)
-            await _safe_send(client, job.chat_id, f"❌ Upload failed: {e}")
+            await _safe_send(client, job.chat_id, f"❌ Upload failed ({res}): <code>{e}</code>")
+            try:
+                await tg_call(lambda: client.send_message(
+                    config.LOG_CHANNEL,
+                    f"❌ Auto job `{job.job_id}` upload failed\n"
+                    f"Output: {output_filename}\n"
+                    f"Res: {res}\nError: {e}",
+                ))
+            except Exception:
+                pass
         finally:
             # Always clean up the thumb — even if upload failed
             _safe_remove(thumb_path)
