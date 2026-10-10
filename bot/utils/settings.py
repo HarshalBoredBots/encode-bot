@@ -89,6 +89,12 @@ QUALITY_PRESETS = {
         "video": {"codec": "libx265", "crf": "28", "preset": "slow"},
         "audio": {"codec": "aac", "bitrate": "128k"},
     },
+    "av1": {
+        "label": "AV1",
+        "description": "SVT-AV1 · preset 8 · 128k · best compression",
+        "video": {"codec": "libsvtav1", "crf": "32", "preset": "8"},
+        "audio": {"codec": "aac", "bitrate": "128k"},
+    },
 }
 
 def _deep_merge(base, override):
@@ -121,10 +127,10 @@ def normalize_settings(raw) -> dict:
     codec = video.get("codec", "libx264")
     if codec == "libsvtav1":
         try:
-            p = int(video.get("preset", 4))
-            video["preset"] = str(max(0, min(8, p)))
+            p = int(video.get("preset", 8))
+            video["preset"] = str(max(0, min(13, p)))
         except (TypeError, ValueError):
-            video["preset"] = "4"
+            video["preset"] = "8"  # fast default — lowest RAM on 1 GB dyno
     else:
         if video.get("preset") not in VALID_PRESETS:
             video["preset"] = "medium"

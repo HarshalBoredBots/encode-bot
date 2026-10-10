@@ -235,50 +235,49 @@ def generate_ffmpeg_cmd(input_path: str, output_path: str, settings: dict, probe
         elif codec == "libx265":
             # libx265 uses x265-params for threading; the global -threads flag
             # has no effect on it and can cause conflicts.
-            #
-            # OOM fix for Heroku 1GB dynos: x265 at 720p uses ~400MB and at
-            # 1080p uses ~650MB+, which exceeds the 1024MB quota and causes
-            # Heroku to SIGKILL the dyno mid-encode.
-            #
-            # memlimit caps the x265 lookahead/reference frame pool (MB).
-            # frame-threads=1 avoids the per-thread frame buffer overhead.
-            # vbv-bufsize/vbv-maxrate are NOT set here — memlimit is enough.
-            #
-            # Safe limits tested against 1GB Heroku dyno:
-            #   1080p → memlimit=600  (~660MB peak total process RSS)
-            #   720p  → memlimit=300  (~410MB peak total process RSS)
-            #   480p  → memlimit=150  (~120MB peak total process RSS)
-            _x265_memlimit = {
-                "1080p": 600,
-                "720p":  300,
-                "480p":  150,
-                "360p":  80,
-            }
-            _res_key = resolutions[0] if resolutions else "720p"
-            _memlimit = _x265_memlimit.get(_res_key, 300)
+            # lookahead-slices=0 disables slice-parallel lookahead — cuts peak RAM
+            # by ~30-50%, critical for 720p/1080p on a 1 GB Heroku dyno.
             cmd += [
                 "-crf", crf, "-preset", preset, "-tag:v", "hvc1",
                 "-x265-params",
-                f"pools={threads}:frame-threads=1:memlimit={_memlimit}",
+                f"pools={threads}:frame-threads={min(threads, 2)}:lookahead-slices=0",
             ]
         elif codec == "libvpx-vp9":
             # row-mt already enables multi-threading; -threads controls tile/row workers
             cmd += ["-crf", crf, "-b:v", "0", "-cpu-used", "2",
                     "-row-mt", "1", "-threads", str(threads)]
         elif codec == "libsvtav1":
-            # SVT-AV1: CRF-based quality, numeric preset (0=slowest/best, 8=fastest)
-            # preset comes from settings (default 4 = balanced)
+            # SVT-AV1: CRF-based quality, numeric preset (0=slowest/best, 13=fastest)
+            # preset comes from settings (default 8 = fast, low RAM)
             try:
-                svt_preset = max(0, min(8, int(preset)))
+                svt_preset = max(0, min(13, int(preset)))
             except (TypeError, ValueError):
-                svt_preset = 4
-            # lp controls parallel threads in SVT-AV1
-            # Heroku reports 8 CPUs but only has 1GB RAM
-            # lp=8 uses ~1.9GB RAM and crashes — cap at 2 (~400MB safe)
-            svt_lp = min(threads, 2)
+                svt_preset = 8
+
+            # ── Memory budget per resolution on a 1 GB Heroku dyno ──────────
+            # lookahead=0      : biggest saving — kills the 120-frame look-ahead buffer
+            # lp=N             : logical processors; each extra LP adds ~150 MB
+            # tile-columns=0:tile-rows=0 : single tile = lowest RAM
+            # enable-qm=1      : quality matrices; free quality gain, no extra RAM
+            # keyint=250       : standard GOP (~10 s @ 25 fps)
+            target_res_for_lp = resolutions[0] if resolutions else "720p"
+            if target_res_for_lp == "1080p":
+                svt_lp = 1          # ~700 MB peak — safe on 1 GB
+            else:
+                svt_lp = min(threads, 2)   # 480p/720p: ~180-350 MB safe
+
+            svtav1_params = (
+                f"preset={svt_preset}"
+                f":lp={svt_lp}"
+                ":lookahead=0"
+                ":tile-columns=0"
+                ":tile-rows=0"
+                ":enable-qm=1"
+                ":keyint=250"
+            )
             cmd += [
                 "-crf", crf, "-b:v", "0",
-                "-svtav1-params", f"preset={svt_preset}:lp={svt_lp}",
+                "-svtav1-params", svtav1_params,
             ]
         cmd += ["-pix_fmt", "yuv420p"]
 
