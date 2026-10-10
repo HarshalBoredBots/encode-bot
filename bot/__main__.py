@@ -93,8 +93,8 @@ async def check_ffmpeg():
         raise RuntimeError(f"ffmpeg/ffprobe not installed: {e}")
 
 async def main():
-    validate_config()
     await check_ffmpeg()
+    validate_config()
     await database.init_db()
     await start_server(config.PORT)
     register_listener(app)
