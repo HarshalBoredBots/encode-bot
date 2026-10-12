@@ -34,16 +34,14 @@ WATERMARK_DIR = "watermarks"
 FONT_DIR = "fonts"
 FONT_PATH = "bot/fonts/Kufam-SemiBold.ttf"
 
-FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "/app/ffmpeg-static/ffmpeg")
-FFPROBE_BIN = os.environ.get("FFPROBE_BIN", "/app/ffmpeg-static/ffprobe")
+FFMPEG_BIN = os.environ.get("FFMPEG_BIN", "ffmpeg")
+FFPROBE_BIN = os.environ.get("FFPROBE_BIN", "ffprobe")
 
 # On Heroku Standard-2X (2 vCPU), use both cores for FFmpeg.
 # The bot itself is I/O-bound (asyncio) and consumes negligible CPU during encoding,
 # so we don't need to reserve a core for it.
 # Override by setting FFMPEG_THREADS in your Heroku config vars if needed.
-# Heroku reports 8 CPUs but RAM is only 1GB
-# Cap threads at 2 to prevent OOM crashes (especially with SVT-AV1)
-_cpu_count = min(os.cpu_count() or 2, 2)
+_cpu_count = os.cpu_count() or 2
 FFMPEG_THREADS = int(os.environ.get("FFMPEG_THREADS", str(_cpu_count)))
 
 FFMPEG_WALL_TIMEOUT = 28800
@@ -67,10 +65,10 @@ def validate_config():
         errors.append("OWNER_ID is missing.")
     if not DATABASE_URL:
         errors.append("DATABASE_URL is missing.")
-    if not shutil.which(FFMPEG_BIN) and not os.path.isfile(FFMPEG_BIN):
-        errors.append(f"ffmpeg binary not found: {FFMPEG_BIN}")
-    if not shutil.which(FFPROBE_BIN) and not os.path.isfile(FFPROBE_BIN):
-        errors.append(f"ffprobe binary not found: {FFPROBE_BIN}")
+    if not shutil.which(FFMPEG_BIN):
+        errors.append(f"ffmpeg binary not found on PATH: {FFMPEG_BIN}")
+    if not shutil.which(FFPROBE_BIN):
+        errors.append(f"ffprobe binary not found on PATH: {FFPROBE_BIN}")
 
     for d in (DOWNLOAD_DIR, THUMB_DIR, WATERMARK_DIR, FONT_DIR, "logs", "bot/fonts"):
         try:

@@ -8,7 +8,7 @@ from bot.utils.settings import WATERMARK_POSITIONS, DEFAULT_FONT_PATH
 
 log = get_logger(__name__)
 
-VALID_CODECS = {"libx264", "libx265", "libvpx-vp9", "libsvtav1"}
+VALID_CODECS = {"libx264", "libx265", "libvpx-vp9", "libaom-av1"}
 VALID_PRESETS = [
     "ultrafast", "superfast", "veryfast", "faster", "fast",
     "medium", "slow", "slower", "veryslow",
@@ -235,50 +235,17 @@ def generate_ffmpeg_cmd(input_path: str, output_path: str, settings: dict, probe
         elif codec == "libx265":
             # libx265 uses x265-params for threading; the global -threads flag
             # has no effect on it and can cause conflicts.
-            # lookahead-slices=0 disables slice-parallel lookahead — cuts peak RAM
-            # by ~30-50%, critical for 720p/1080p on a 1 GB Heroku dyno.
             cmd += [
                 "-crf", crf, "-preset", preset, "-tag:v", "hvc1",
-                "-x265-params",
-                f"pools={threads}:frame-threads={min(threads, 2)}:lookahead-slices=0",
+                "-x265-params", f"pools={threads}:frame-threads={min(threads, 4)}",
             ]
         elif codec == "libvpx-vp9":
             # row-mt already enables multi-threading; -threads controls tile/row workers
             cmd += ["-crf", crf, "-b:v", "0", "-cpu-used", "2",
                     "-row-mt", "1", "-threads", str(threads)]
-        elif codec == "libsvtav1":
-            # SVT-AV1: CRF-based quality, numeric preset (0=slowest/best, 13=fastest)
-            # preset comes from settings (default 8 = fast, low RAM)
-            try:
-                svt_preset = max(0, min(13, int(preset)))
-            except (TypeError, ValueError):
-                svt_preset = 8
-
-            # ── Memory budget per resolution on a 1 GB Heroku dyno ──────────
-            # lookahead=0      : biggest saving — kills the 120-frame look-ahead buffer
-            # lp=N             : logical processors; each extra LP adds ~150 MB
-            # tile-columns=0:tile-rows=0 : single tile = lowest RAM
-            # enable-qm=1      : quality matrices; free quality gain, no extra RAM
-            # keyint=250       : standard GOP (~10 s @ 25 fps)
-            target_res_for_lp = resolutions[0] if resolutions else "720p"
-            if target_res_for_lp == "1080p":
-                svt_lp = 1          # ~700 MB peak — safe on 1 GB
-            else:
-                svt_lp = min(threads, 2)   # 480p/720p: ~180-350 MB safe
-
-            svtav1_params = (
-                f"preset={svt_preset}"
-                f":lp={svt_lp}"
-                ":lookahead=0"
-                ":tile-columns=0"
-                ":tile-rows=0"
-                ":enable-qm=1"
-                ":keyint=250"
-            )
-            cmd += [
-                "-crf", crf, "-b:v", "0",
-                "-svtav1-params", svtav1_params,
-            ]
+        elif codec == "libaom-av1":
+            cmd += ["-crf", crf, "-b:v", "0", "-cpu-used", "4",
+                    "-row-mt", "1", "-threads", str(threads)]
         cmd += ["-pix_fmt", "yuv420p"]
 
         target_res = resolutions[0] if resolutions else "720p"
